@@ -523,7 +523,8 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 
 // Override default compile-time parameters here.
 #define USE_LOCKS 1
-#define USE_SPIN_LOCKS 0
+#define USE_SPIN_LOCKS 1
+#define USE_RECURSIVE_LOCKS 0
 #define HAVE_MORECORE 0
 #define HAVE_MMAP 1
 #define HAVE_MREMAP 0

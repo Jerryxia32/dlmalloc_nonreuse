@@ -521,13 +521,37 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
   improvement at the expense of carrying around more memory.
 */
 
-// Override default compile-time parameters here.
+// Override default dlmalloc compile-time parameters here.
 #define USE_LOCKS 1
 #define USE_SPIN_LOCKS 1
 #define USE_RECURSIVE_LOCKS 0
 #define HAVE_MORECORE 0
 #define HAVE_MMAP 1
 #define HAVE_MREMAP 0
+#define FOOTERS 0
+#define DEBUG 1
+#define ABORT_ON_ASSERT_FAILURE 1
+
+// Override default non-reuse compile-time parameters here.
+#define DEFAULT_FREEBUF_SIZE ((size_t)1024U)
+#define DEFAULT_SWEEP_SIZE ((size_t)16U)
+#define SWEEP_STATS 1
+
+//-----------------------------------------------------------------------------
+// the default size of the free buffer pool
+#ifndef DEFAULT_FREEBUF_SIZE
+#define DEFAULT_FREEBUF_SIZE ((size_t)1024U)
+#endif // DEFAULT_FREEBUF_SIZE
+
+// the default number of how many capabilities to sweep per sweep
+#ifndef DEFAULT_SWEEP_SIZE
+#define DEFAULT_SWEEP_SIZE ((size_t)16U)
+#endif // DEFAULT_SWEEP_SIZE
+
+// Enable the report of sweeping statistics.
+#ifndef SWEEP_STATS
+#define SWEEP_STATS 0
+#endif // SWEEP_STATS
 
 /* Version identifier to allow people to support multiple versions */
 #ifndef DLMALLOC_VERSION

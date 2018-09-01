@@ -1158,6 +1158,7 @@ typedef struct malloc_segment* msegmentptr;
 struct malloc_state {
   binmap_t   smallmap;
   binmap_t   treemap;
+  size_t     freebufsize;
   size_t     dvsize;
   size_t     topsize;
   char*      least_addr;
@@ -1168,6 +1169,7 @@ struct malloc_state {
   size_t     magic;
   mchunkptr  smallbins[(NSMALLBINS+1)*2];
   tbinptr    treebins[NTREEBINS];
+  mchunk     freebufbin;
   size_t     footprint;
   size_t     max_footprint;
   size_t     footprint_limit; /* zero means no limit */
@@ -2142,6 +2144,61 @@ static void internal_malloc_stats(mstate m) {
   compilers.
 */
 
+// Link a free chunk into a freebufbin.
+#define insert_freebuf_chunk(M, P) {\
+  assert(cdirty(P));\
+  mchunkptr B = &M->freebufbin;\
+  mchunkptr L = B;\
+  if(RTCHECK(ok_address(M, B->bk)))\
+    L = B->bk;\
+  else {\
+    CORRUPTION_ERROR_ACTION(M);\
+  }\
+  B->bk = P;\
+  L->fd = P;\
+  P->bk = L;\
+  P->fd = B;\
+  assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
+  M->freebufsize++;\
+}
+
+// Unlink a chunk from freebufbin.
+#define unlink_freebuf_chunk(M, P) {\
+  assert(cdirty(P));\
+  mchunkptr F = P->fd;\
+  mchunkptr B = P->bk;\
+  assert(P != B);\
+  assert(P != F);\
+  if(RTCHECK(ok_address(M, F) && F->bk == P)) { \
+    if(RTCHECK(ok_address(M, B) && B->fd == P)) {\
+      F->bk = B;\
+      B->fd = F;\
+      M->freebufsize--;\
+      assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
+    } else {\
+      CORRUPTION_ERROR_ACTION(M);\
+    }\
+  } else {\
+    CORRUPTION_ERROR_ACTION(M);\
+  }\
+}
+
+// Unlink the first chunk from freebufbin.
+#define unlink_first_freebuf_chunk(M, B, P) {\
+  assert(cdirty(P));\
+  mchunkptr F = P->fd;\
+  assert(P != B);\
+  assert(P != F);\
+  if(RTCHECK(ok_address(M, F) && F->bk == P)) {\
+    F->bk = B;\
+    B->fd = F;\
+    M->freebufsize--;\
+    assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
+  } else {\
+    CORRUPTION_ERROR_ACTION(M);\
+  }\
+}
+
 /* Link a free chunk into a smallbin  */
 #define insert_small_chunk(M, P, S) {\
   bindex_t I  = small_index(S);\
@@ -2491,6 +2548,8 @@ static void init_bins(mstate m) {
     sbinptr bin = smallbin_at(m,i);
     bin->fd = bin->bk = bin;
   }
+  mchunkptr freebin = &m->freebufbin;
+  freebin->fd = freebin->bk = freebin;
 }
 
 #if PROCEED_ON_ERROR
@@ -3255,7 +3314,8 @@ void* dlmalloc(size_t bytes) {
 
 /* ---------------------------- free --------------------------- */
 
-void dlfree(void* mem) {
+static void
+dlfree_internal(void* mem) {
   /*
      Consolidate freed chunks with preceeding or succeeding bordering
      free chunks, if they exist, and then place in a bin.  Intermixed
@@ -3273,7 +3333,7 @@ void dlfree(void* mem) {
 #else /* FOOTERS */
 #define fm gm
 #endif /* FOOTERS */
-    if (!PREACTION(fm)) {
+    if (1) {
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
         size_t psize = chunksize(p);
@@ -3356,6 +3416,45 @@ void dlfree(void* mem) {
     erroraction:
       USAGE_ERROR_ACTION(fm, p);
     postaction:
+      ;
+    }
+  }
+#if !FOOTERS
+#undef fm
+#endif /* FOOTERS */
+}
+
+void
+dlfree(void* mem) {
+  if(mem != 0) {
+    mchunkptr p  = mem2chunk(mem);
+#if FOOTERS
+    mstate fm = get_mstate_for(p);
+    if(!ok_magic(fm)) {
+      USAGE_ERROR_ACTION(fm, p);
+      return;
+    }
+#else // FOOTERS
+#define fm gm
+#endif // FOOTERS
+    if(!PREACTION(fm)) {
+      set_cdirty(p);
+      insert_freebuf_chunk(fm, p);
+      goto postaction;
+    erroraction:
+      USAGE_ERROR_ACTION(fm, p);
+    postaction:
+      if(fm->freebufsize == DEFAULT_FREEBUF_SIZE) {
+        mchunkptr freebin = &fm->freebufbin;
+        for(size_t i=0; i<DEFAULT_SWEEP_SIZE; i++) {
+          mchunkptr ret = freebin->fd;
+          unlink_first_freebuf_chunk(fm, freebin, ret);
+          clear_cdirty(p);
+          // Have to do free_internal after unlinking, otherwise the circular
+          // list of freebufbin will get corrupted.
+          dlfree_internal(chunk2mem(ret));
+        }
+      }
       POSTACTION(fm);
     }
   }

@@ -2044,6 +2044,7 @@ static void internal_malloc_stats(mstate m) {
 
 // Link a free chunk into a freebufbin.
 #define insert_freebuf_chunk(M, P) {\
+  assert(cdirty(P));\
   mchunkptr B = &M->freebufbin;\
   mchunkptr L = B;\
   if(RTCHECK(ok_address(M, B->bk)))\
@@ -2061,6 +2062,7 @@ static void internal_malloc_stats(mstate m) {
 
 // Unlink a chunk from freebufbin.
 #define unlink_freebuf_chunk(M, P) {\
+  assert(cdirty(P));\
   mchunkptr F = P->fd;\
   mchunkptr B = P->bk;\
   assert(P != B);\
@@ -2081,6 +2083,7 @@ static void internal_malloc_stats(mstate m) {
 
 // Unlink the first chunk from freebufbin.
 #define unlink_first_freebuf_chunk(M, B, P) {\
+  assert(cdirty(P));\
   mchunkptr F = P->fd;\
   assert(P != B);\
   assert(P != F);\
@@ -3287,7 +3290,8 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb,
         newp = p;
       }
     }
-    else if (!cinuse(next)) { /* extend into next free chunk */
+    // Extend into next free chunk only if the next is not dirty.
+    else if(!cinuse(next) && !cdirty(next)) {
       size_t nextsize = chunksize(next);
       if (oldsize + nextsize >= nb) {
         size_t rsize = oldsize + nextsize - nb;
@@ -3631,13 +3635,15 @@ void* dlrealloc(void* oldmem, size_t bytes) {
     }
 #endif /* FOOTERS */
     if (!PREACTION(m)) {
-      mchunkptr newp = try_realloc_chunk(m, oldp, nb, 1);
+      //mchunkptr newp = try_realloc_chunk(m, oldp, nb, 1);
+      //POSTACTION(m);
+      //if (newp != 0) {
+      //  check_inuse_chunk(m, newp);
+      //  mem = chunk2mem(newp);
+      //}
+      //else {
       POSTACTION(m);
-      if (newp != 0) {
-        check_inuse_chunk(m, newp);
-        mem = chunk2mem(newp);
-      }
-      else {
+      { //TODO: Now for simplicity just malloc and copy and free.
         mem = internal_malloc(m, bytes);
         if (mem != 0) {
           size_t oc = chunksize(oldp) - overhead_for(oldp);

@@ -763,7 +763,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define cinuse(p)           ((p)->head & CINUSE_BIT)
 #define pinuse(p)           ((p)->head & PINUSE_BIT)
 #define cdirty(p)           ((p)->head & CDIRTY_BIT)
-#define is_inuse(p)         (((p)->head & INUSE_BITS) != PINUSE_BIT)
+#define is_inuse(p)         ((((p)->head & INUSE_BITS) != PINUSE_BIT) || cdirty(p))
 #define is_mmapped(p)       (((p)->head & INUSE_BITS) == 0)
 
 #define chunksize(p)        ((p)->head & ~(FLAG_BITS))
@@ -2754,25 +2754,28 @@ static void dispose_chunk(mstate m, mchunkptr p, size_t psize) {
       return;
     }
     prev = chunk_minus_offset(p, prevsize);
-    psize += prevsize;
-    p = prev;
-    if (RTCHECK(ok_address(m, prev))) { /* consolidate backward */
-      if (p != m->dv) {
-        unlink_chunk(m, p, prevsize);
+    if(!cdirty(prev)) { // Can only consolidate if the previous is not dirty.
+      psize += prevsize;
+      p = prev;
+      if (RTCHECK(ok_address(m, prev))) { /* consolidate backward */
+        if (p != m->dv) {
+          unlink_chunk(m, p, prevsize);
+        }
+        else if ((next->head & INUSE_BITS) == INUSE_BITS) {
+          m->dvsize = psize;
+          set_free_with_pinuse(p, psize, next);
+          return;
+        }
       }
-      else if ((next->head & INUSE_BITS) == INUSE_BITS) {
-        m->dvsize = psize;
-        set_free_with_pinuse(p, psize, next);
+      else {
+        CORRUPTION_ERROR_ACTION(m);
         return;
       }
     }
-    else {
-      CORRUPTION_ERROR_ACTION(m);
-      return;
-    }
   }
   if (RTCHECK(ok_address(m, next))) {
-    if (!cinuse(next)) {  /* consolidate forward */
+    // Only consolidate forward if the next is free and not dirty.
+    if(!cinuse(next) && !cdirty(next)) {
       if (next == m->top) {
         size_t tsize = m->topsize += psize;
         m->top = p;
@@ -3093,25 +3096,28 @@ dlfree_internal(void* mem) {
           }
           else {
             mchunkptr prev = chunk_minus_offset(p, prevsize);
-            psize += prevsize;
-            p = prev;
-            if (RTCHECK(ok_address(fm, prev))) { /* consolidate backward */
-              if (p != fm->dv) {
-                unlink_chunk(fm, p, prevsize);
+            if(!cdirty(prev)) { // Consolidate backward only if not dirty.
+              psize += prevsize;
+              p = prev;
+              if (RTCHECK(ok_address(fm, prev))) {
+                if (p != fm->dv) {
+                  unlink_chunk(fm, p, prevsize);
+                }
+                else if ((next->head & INUSE_BITS) == INUSE_BITS) {
+                  fm->dvsize = psize;
+                  set_free_with_pinuse(p, psize, next);
+                  goto postaction;
+                }
               }
-              else if ((next->head & INUSE_BITS) == INUSE_BITS) {
-                fm->dvsize = psize;
-                set_free_with_pinuse(p, psize, next);
-                goto postaction;
-              }
+              else
+                goto erroraction;
             }
-            else
-              goto erroraction;
           }
         }
 
         if (RTCHECK(ok_next(p, next) && ok_pinuse(next))) {
-          if (!cinuse(next)) {  /* consolidate forward */
+          // Consolidate forward only with a non-dirty chunk.
+          if(!cinuse(next) && !cdirty(next)) {
             if (next == fm->top) {
               size_t tsize = fm->topsize += psize;
               fm->top = p;

@@ -692,21 +692,10 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define HAVE_MORECORE 1
 #endif  /* ONLY_MSPACES */
 #endif  /* HAVE_MORECORE */
-#if !HAVE_MORECORE
-#define MORECORE_CONTIGUOUS 0
-#else   /* !HAVE_MORECORE */
-#define MORECORE_DEFAULT sbrk
-#ifndef MORECORE_CONTIGUOUS
-#define MORECORE_CONTIGUOUS 1
-#endif  /* MORECORE_CONTIGUOUS */
-#endif  /* HAVE_MORECORE */
 #ifndef DEFAULT_GRANULARITY
-#if (MORECORE_CONTIGUOUS || defined(WIN32))
-#define DEFAULT_GRANULARITY (0)  /* 0 means to compute in init_mparams */
-#else   /* MORECORE_CONTIGUOUS */
 #define DEFAULT_GRANULARITY ((size_t)64U * (size_t)1024U)
-#endif  /* MORECORE_CONTIGUOUS */
 #endif  /* DEFAULT_GRANULARITY */
+
 #ifndef DEFAULT_TRIM_THRESHOLD
 #ifndef MORECORE_CANNOT_TRIM
 #define DEFAULT_TRIM_THRESHOLD ((size_t)2U * (size_t)1024U * (size_t)1024U)

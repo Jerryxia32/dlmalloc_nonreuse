@@ -237,12 +237,6 @@ static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
 #define DIRECT_MMAP_DEFAULT(s) MMAP_DEFAULT(s)
 #endif /* HAVE_MMAP */
 
-#if HAVE_MREMAP
-#ifndef WIN32
-#define MREMAP_DEFAULT(addr, osz, nsz, mv) mremap((addr), (osz), (nsz), (mv))
-#endif /* WIN32 */
-#endif /* HAVE_MREMAP */
-
 /**
  * Define CALL_MORECORE
  */
@@ -280,18 +274,7 @@ static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
     #define CALL_MUNMAP(a, s)       MUNMAP((a), (s))
 #endif /* HAVE_MMAP */
 
-/**
- * Define CALL_MREMAP
- */
-#if HAVE_MMAP && HAVE_MREMAP
-    #ifdef MREMAP
-        #define CALL_MREMAP(addr, osz, nsz, mv) MREMAP((addr), (osz), (nsz), (mv))
-    #else /* MREMAP */
-        #define CALL_MREMAP(addr, osz, nsz, mv) MREMAP_DEFAULT((addr), (osz), (nsz), (mv))
-    #endif /* MREMAP */
-#else  /* HAVE_MMAP && HAVE_MREMAP */
-    #define CALL_MREMAP(addr, osz, nsz, mv)     MFAIL
-#endif /* HAVE_MMAP && HAVE_MREMAP */
+#define CALL_MREMAP(addr, osz, nsz, mv)     MFAIL
 
 /* mstate bit set if continguous morecore disabled or failed */
 #define USE_NONCONTIGUOUS_BIT (4U)
@@ -2080,7 +2063,6 @@ static void internal_malloc_stats(mstate m) {
 
 // Link a free chunk into a freebufbin.
 #define insert_freebuf_chunk(M, P) {\
-  assert(cdirty(P));\
   mchunkptr B = &M->freebufbin;\
   mchunkptr L = B;\
   if(RTCHECK(ok_address(M, B->bk)))\
@@ -2098,7 +2080,6 @@ static void internal_malloc_stats(mstate m) {
 
 // Unlink a chunk from freebufbin.
 #define unlink_freebuf_chunk(M, P) {\
-  assert(cdirty(P));\
   mchunkptr F = P->fd;\
   mchunkptr B = P->bk;\
   assert(P != B);\
@@ -2119,7 +2100,6 @@ static void internal_malloc_stats(mstate m) {
 
 // Unlink the first chunk from freebufbin.
 #define unlink_first_freebuf_chunk(M, B, P) {\
-  assert(cdirty(P));\
   mchunkptr F = P->fd;\
   assert(P != B);\
   assert(P != F);\
@@ -2420,28 +2400,8 @@ static mchunkptr mmap_resize(mstate m, mchunkptr oldp, size_t nb, int flags) {
       (oldsize - nb) <= (mparams.granularity << 1))
     return oldp;
   else {
-    size_t offset = oldp->prev_foot;
-    size_t oldmmsize = oldsize + offset + MMAP_FOOT_PAD;
-    size_t newmmsize = mmap_align(nb + SIX_SIZE_T_SIZES + CHUNK_ALIGN_MASK);
-    char* cp = (char*)CALL_MREMAP((char*)oldp - offset,
-                                  oldmmsize, newmmsize, flags);
-    if (cp != CMFAIL) {
-      mchunkptr newp = (mchunkptr)(cp + offset);
-      size_t psize = newmmsize - offset - MMAP_FOOT_PAD;
-      newp->head = psize;
-      mark_inuse_foot(m, newp, psize);
-      chunk_plus_offset(newp, psize)->head = FENCEPOST_HEAD;
-      chunk_plus_offset(newp, psize+SIZE_T_SIZE)->head = 0;
-
-      if (cp < m->least_addr)
-        m->least_addr = cp;
-      if ((m->footprint += newmmsize - oldmmsize) > m->max_footprint)
-        m->max_footprint = m->footprint;
-      check_mmapped_chunk(m, newp);
-      return newp;
-    }
+    return 0;
   }
-  return 0;
 }
 
 

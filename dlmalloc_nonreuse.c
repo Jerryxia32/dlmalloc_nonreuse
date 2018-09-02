@@ -3230,6 +3230,18 @@ dlfree(void* mem) {
         assert(!pdirty(theNext));
         set_cdirty(p);
         set_pdirty(theNext);
+#if 0
+        // Assert on magic guard value.
+        if(pdirty(p)) {
+          assert(*(size_t*)p == 0xdeadbeef);
+        }
+        if(cdirty(theNext)) {
+          size_t theNextSize = chunksize(theNext);
+          mchunkptr theNextNext = chunk_plus_offset(theNext, theNextSize);
+          assert(*(size_t*)theNextNext == 0xdeadbeef);
+        }
+        *(size_t*)theNext = 0xdeadbeef;
+#endif
       }
       insert_freebuf_chunk(fm, p);
       goto postaction;

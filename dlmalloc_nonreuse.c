@@ -798,11 +798,11 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 
 /* Set size, pinuse bit, and foot */
 #define set_size_and_pinuse_of_free_chunk(p, s)\
-  ((p)->head = (dirtybits(p)|s|PINUSE_BIT), set_foot(p, s))
+  ((p)->head = (pdirty(p)|s|PINUSE_BIT), set_foot(p, s))
 
 /* Set size, pinuse bit, foot, and clear next pinuse */
 #define set_free_with_pinuse(p, s, n)\
-  (clear_pinuse(n), set_size_and_pinuse_of_free_chunk(p, s))
+  (clear_pinuse(n), clear_pdirty(n), set_size_and_pinuse_of_free_chunk(p, s))
 
 /* Get the internal overhead associated with chunk p */
 #define overhead_for(p)\
@@ -1548,17 +1548,17 @@ static size_t traverse_and_check(mstate m);
 
 /* Set cinuse bit and pinuse bit of next chunk */
 #define set_inuse(M,p,s)\
-  ((p)->head = (dirtybits(p)|((p)->head & PINUSE_BIT)|s|CINUSE_BIT),\
-  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT)
+  ((p)->head = (pdirty(p)|((p)->head & PINUSE_BIT)|s|CINUSE_BIT),\
+  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT, clear_pdirty((mchunkptr)(((char*)(p)) + (s))))
 
 /* Set cinuse and pinuse of this chunk and pinuse of next chunk */
 #define set_inuse_and_pinuse(M,p,s)\
-  ((p)->head = (dirtybits(p)|s|PINUSE_BIT|CINUSE_BIT),\
-  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT)
+  ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
+  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT, clear_pdirty((mchunkptr)(((char*)(p)) + (s))))
 
 /* Set size, cinuse and pinuse bit of this chunk */
 #define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
-  ((p)->head = (dirtybits(p)|s|PINUSE_BIT|CINUSE_BIT))
+  ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT))
 
 #else /* FOOTERS */
 
@@ -1571,17 +1571,17 @@ static size_t traverse_and_check(mstate m);
     (chunksize(p))))->prev_foot ^ mparams.magic))
 
 #define set_inuse(M,p,s)\
-  ((p)->head = (dirtybits(p)|((p)->head & PINUSE_BIT)|s|CINUSE_BIT),\
+  ((p)->head = (pdirty(p)|((p)->head & PINUSE_BIT)|s|CINUSE_BIT),\
   (((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT), \
   mark_inuse_foot(M,p,s))
 
 #define set_inuse_and_pinuse(M,p,s)\
-  ((p)->head = (dirtybits(p)|s|PINUSE_BIT|CINUSE_BIT),\
+  ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
   (((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT),\
  mark_inuse_foot(M,p,s))
 
 #define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
-  ((p)->head = (dirtybits(p)|s|PINUSE_BIT|CINUSE_BIT),\
+  ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
   mark_inuse_foot(M, p, s))
 
 #endif /* !FOOTERS */
@@ -3075,6 +3075,15 @@ void* dlmalloc(size_t bytes) {
     mem = sys_alloc(gm, nb);
 
   postaction:
+    ;
+    mchunkptr ret = mem2chunk(mem);
+    if(!is_mmapped(ret)) {
+      size_t theSize = chunksize(ret);
+      mchunkptr theNext = chunk_plus_offset(ret, theSize);
+      // Clear these two bits to be safe.
+      clear_cdirty(ret);
+      clear_pdirty(theNext);
+    }
     POSTACTION(gm);
     return mem;
   }
@@ -3199,6 +3208,7 @@ dlfree_internal(void* mem) {
 
 void
 dlfree(void* mem) {
+
   if(mem != 0) {
     mchunkptr p  = mem2chunk(mem);
 #if FOOTERS
@@ -3215,6 +3225,9 @@ dlfree(void* mem) {
       if(!is_mmapped(p)) {
         size_t theSize = chunksize(p);
         mchunkptr theNext = chunk_plus_offset(p, theSize);
+        check_freebuf_corrupt(fm, p);
+        assert(!cdirty(p));
+        assert(!pdirty(theNext));
         set_cdirty(p);
         set_pdirty(theNext);
       }

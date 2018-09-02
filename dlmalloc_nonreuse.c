@@ -1110,6 +1110,9 @@ struct malloc_state {
   size_t     footprint;
   size_t     max_footprint;
   size_t     footprint_limit; /* zero means no limit */
+#if SWEEP_STATS
+  size_t     sweepTimes;
+#endif // SWEEP_STATS
   flag_t     mflags;
 #if USE_LOCKS
   MLOCK_T    mutex;     /* locate lock among fields that rarely change */
@@ -1604,18 +1607,8 @@ static int init_mparams(void) {
     size_t psize;
     size_t gsize;
 
-#ifndef WIN32
     psize = malloc_getpagesize;
     gsize = ((DEFAULT_GRANULARITY != 0)? DEFAULT_GRANULARITY : psize);
-#else /* WIN32 */
-    {
-      SYSTEM_INFO system_info;
-      GetSystemInfo(&system_info);
-      psize = system_info.dwPageSize;
-      gsize = ((DEFAULT_GRANULARITY != 0)?
-               DEFAULT_GRANULARITY : system_info.dwAllocationGranularity);
-    }
-#endif /* WIN32 */
 
     /* Sanity-check configuration:
        size_t must be unsigned and as wide as pointer type.
@@ -2099,18 +2092,18 @@ static void internal_malloc_stats(mstate m) {
 }
 
 // Unlink the first chunk from freebufbin.
-static void unlink_first_freebuf_chunk(mstate M, mchunkptr B, mchunkptr P) {
-  mchunkptr F = P->fd;
-  assert(P != B);
-  assert(P != F);
-  if(RTCHECK(ok_address(M, F) && F->bk == P)) {
-    F->bk = B;
-    B->fd = F;
-    M->freebufsize--;
-    assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);
+#define unlink_first_freebuf_chunk(M, B, P) {\
+  mchunkptr F = P->fd;\
+  assert(P != B);\
+  assert(P != F);\
+  if(RTCHECK(ok_address(M, F) && F->bk == P)) {\
+    F->bk = B;\
+    B->fd = F;\
+    M->freebufsize--;\
+    assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
   } else {\
-    CORRUPTION_ERROR_ACTION(M);
-  }
+    CORRUPTION_ERROR_ACTION(M);\
+  }\
 }
 
 /* Link a free chunk into a smallbin  */
@@ -2529,6 +2522,13 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
   check_top_chunk(m, m->top);
 }
 
+#if SWEEP_STATS
+void
+print_sweep_stats() {
+  printf("Sweeps: %zd.\n", gm->sweepTimes);
+}
+#endif // SWEEP_STATS
+
 /* -------------------------- System allocation -------------------------- */
 
 /* Get memory from system using MORECORE or MMAP */
@@ -2593,6 +2593,9 @@ static void* sys_alloc(mstate m, size_t nb) {
       m->max_footprint = m->footprint;
 
     if (!is_initialized(m)) { /* first-time initialization */
+#if SWEEP_STATS
+      atexit(print_sweep_stats);
+#endif // SWEEP_STATS
       if (m->least_addr == 0 || tbase < m->least_addr)
         m->least_addr = tbase;
       m->seg.base = tbase;
@@ -3237,6 +3240,9 @@ dlfree(void* mem) {
           // list of freebufbin will get corrupted.
           dlfree_internal(chunk2mem(ret));
         }
+#if SWEEP_STATS
+        fm->sweepTimes++;
+#endif // SWEEP_STATS
       }
       POSTACTION(fm);
     }

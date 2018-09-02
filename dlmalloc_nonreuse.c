@@ -2599,6 +2599,7 @@ static void* sys_alloc(mstate m, size_t nb) {
     if (!is_initialized(m)) { /* first-time initialization */
 #if SWEEP_STATS
       atexit(print_sweep_stats);
+      atexit(dlmalloc_stats);
 #endif // SWEEP_STATS
       if (m->least_addr == 0 || tbase < m->least_addr)
         m->least_addr = tbase;
@@ -3279,8 +3280,24 @@ dlfree(void* mem) {
           }
         }
       } else {
-        insert_freebuf_chunk(fm, p);
-        goto postaction;
+        dlfree_internal(chunk2mem(p));
+        mchunkptr freebin = &fm->freebufbin;
+        for(size_t i=0; i<DEFAULT_SWEEP_SIZE-1; i++) {
+          mchunkptr ret = freebin->fd;
+          if(ret == freebin) break;
+          unlink_first_freebuf_chunk(fm, freebin, ret);
+          size_t theSize = chunksize(ret);
+          mchunkptr theNext = chunk_plus_offset(ret, theSize);
+          assert(cdirty(ret));
+          assert(pdirty(theNext));
+          clear_cdirty(ret);
+          clear_pdirty(theNext);
+          // Have to do free_internal after unlinking, otherwise the circular
+          // list of freebufbin will get corrupted.
+          dlfree_internal(chunk2mem(ret));
+        }
+        fm->sweepTimes++;
+        goto endaction;
       }
     erroraction:
       USAGE_ERROR_ACTION(fm, p);
@@ -3290,14 +3307,12 @@ dlfree(void* mem) {
         for(size_t i=0; i<DEFAULT_SWEEP_SIZE; i++) {
           mchunkptr ret = freebin->fd;
           unlink_first_freebuf_chunk(fm, freebin, ret);
-          if(!is_mmapped(ret)) {
-            size_t theSize = chunksize(ret);
-            mchunkptr theNext = chunk_plus_offset(ret, theSize);
-            assert(cdirty(ret));
-            assert(pdirty(theNext));
-            clear_cdirty(ret);
-            clear_pdirty(theNext);
-          }
+          size_t theSize = chunksize(ret);
+          mchunkptr theNext = chunk_plus_offset(ret, theSize);
+          assert(cdirty(ret));
+          assert(pdirty(theNext));
+          clear_cdirty(ret);
+          clear_pdirty(theNext);
           // Have to do free_internal after unlinking, otherwise the circular
           // list of freebufbin will get corrupted.
           dlfree_internal(chunk2mem(ret));
@@ -3306,6 +3321,7 @@ dlfree(void* mem) {
         fm->sweepTimes++;
 #endif // SWEEP_STATS
       }
+    endaction:
       POSTACTION(fm);
     }
   }

@@ -182,6 +182,8 @@ unsigned char _BitScanReverse(unsigned long *index, unsigned long mask);
 #define SIZE_T_ONE          ((size_t)1)
 #define SIZE_T_TWO          ((size_t)2)
 #define SIZE_T_FOUR         ((size_t)4)
+#define SIZE_T_EIGHT        ((size_t)8)
+#define SIZE_T_SIXTEEN      ((size_t)16)
 #define TWO_SIZE_T_SIZES    (SIZE_T_SIZE<<1)
 #define FOUR_SIZE_T_SIZES   (SIZE_T_SIZE<<2)
 #define SIX_SIZE_T_SIZES    (FOUR_SIZE_T_SIZES+TWO_SIZE_T_SIZES)
@@ -752,25 +754,31 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 
 #define PINUSE_BIT          (SIZE_T_ONE)
 #define CINUSE_BIT          (SIZE_T_TWO)
-#define CDIRTY_BIT          (SIZE_T_FOUR)
+#define PDIRTY_BIT          (SIZE_T_FOUR)
+#define CDIRTY_BIT          (SIZE_T_EIGHT)
 #define INUSE_BITS          (PINUSE_BIT|CINUSE_BIT)
-#define FLAG_BITS           (PINUSE_BIT|CINUSE_BIT|CDIRTY_BIT)
+#define DIRTY_BITS          (PDIRTY_BIT|CDIRTY_BIT)
+#define FLAG_BITS           (PINUSE_BIT|CINUSE_BIT|CDIRTY_BIT|PDIRTY_BIT)
 
 /* Head value for fenceposts */
-#define FENCEPOST_HEAD      (INUSE_BITS|SIZE_T_SIZE)
+#define FENCEPOST_HEAD      (INUSE_BITS)
 
 /* extraction of fields from head words */
 #define cinuse(p)           ((p)->head & CINUSE_BIT)
 #define pinuse(p)           ((p)->head & PINUSE_BIT)
 #define cdirty(p)           ((p)->head & CDIRTY_BIT)
-#define is_inuse(p)         ((((p)->head & INUSE_BITS) != PINUSE_BIT) || cdirty(p))
+#define pdirty(p)           ((p)->head & PDIRTY_BIT)
+#define is_inuse(p)         ((((p)->head & INUSE_BITS) != PINUSE_BIT))
 #define is_mmapped(p)       (((p)->head & INUSE_BITS) == 0)
 
 #define chunksize(p)        ((p)->head & ~(FLAG_BITS))
 
 #define clear_pinuse(p)     ((p)->head &= ~PINUSE_BIT)
+#define clear_cinuse(p)     ((p)->head &= ~CINUSE_BIT)
 #define set_cdirty(p)       ((p)->head |= CDIRTY_BIT)
 #define clear_cdirty(p)     ((p)->head &= ~CDIRTY_BIT)
+#define set_pdirty(p)       ((p)->head |= PDIRTY_BIT)
+#define clear_pdirty(p)     ((p)->head &= ~PDIRTY_BIT)
 
 /* Treat space at ptr +/- offset as a chunk */
 #define chunk_plus_offset(p, s)  ((mchunkptr)(((char*)(p)) + (s)))
@@ -1289,6 +1297,7 @@ static int has_segment_link(mstate m, msegmentptr ss) {
 #define check_malloced_chunk(M,P,N) do_check_malloced_chunk(M,P,N)
 #define check_mmapped_chunk(M,P)    do_check_mmapped_chunk(M,P)
 #define check_malloc_state(M)       do_check_malloc_state(M)
+#define check_freebuf_corrupt(M)    do_check_freebuf_corrupt(M)
 
 static void   do_check_any_chunk(mstate m, mchunkptr p);
 static void   do_check_top_chunk(mstate m, mchunkptr p);
@@ -1691,6 +1700,14 @@ static int change_mparam(int param_number, int value) {
 #if DEBUG
 /* ------------------------- Debugging Support --------------------------- */
 
+static void
+do_check_freebuf_corrupt(mstate m, mchunkptr p) {
+  mchunkptr freebinptr = &m->freebufbin;
+  for(mchunkptr iter=freebinptr->fd; iter!=freebinptr; iter=iter->fd) {
+    assert(p != iter);
+  }
+}
+
 /* Check properties of any chunk, whether free, inuse, mmapped etc  */
 static void do_check_any_chunk(mstate m, mchunkptr p) {
   assert((is_aligned(chunk2mem(p))) || (p->head == FENCEPOST_HEAD));
@@ -2044,7 +2061,6 @@ static void internal_malloc_stats(mstate m) {
 
 // Link a free chunk into a freebufbin.
 #define insert_freebuf_chunk(M, P) {\
-  assert(cdirty(P));\
   mchunkptr B = &M->freebufbin;\
   mchunkptr L = B;\
   if(RTCHECK(ok_address(M, B->bk)))\
@@ -2062,7 +2078,6 @@ static void internal_malloc_stats(mstate m) {
 
 // Unlink a chunk from freebufbin.
 #define unlink_freebuf_chunk(M, P) {\
-  assert(cdirty(P));\
   mchunkptr F = P->fd;\
   mchunkptr B = P->bk;\
   assert(P != B);\
@@ -2082,19 +2097,18 @@ static void internal_malloc_stats(mstate m) {
 }
 
 // Unlink the first chunk from freebufbin.
-#define unlink_first_freebuf_chunk(M, B, P) {\
-  assert(cdirty(P));\
-  mchunkptr F = P->fd;\
-  assert(P != B);\
-  assert(P != F);\
-  if(RTCHECK(ok_address(M, F) && F->bk == P)) {\
-    F->bk = B;\
-    B->fd = F;\
-    M->freebufsize--;\
-    assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
+static void unlink_first_freebuf_chunk(mstate M, mchunkptr B, mchunkptr P) {
+  mchunkptr F = P->fd;
+  assert(P != B);
+  assert(P != F);
+  if(RTCHECK(ok_address(M, F) && F->bk == P)) {
+    F->bk = B;
+    B->fd = F;
+    M->freebufsize--;
+    assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);
   } else {\
-    CORRUPTION_ERROR_ACTION(M);\
-  }\
+    CORRUPTION_ERROR_ACTION(M);
+  }
 }
 
 /* Link a free chunk into a smallbin  */
@@ -2757,28 +2771,28 @@ static void dispose_chunk(mstate m, mchunkptr p, size_t psize) {
       return;
     }
     prev = chunk_minus_offset(p, prevsize);
-    if(!cdirty(prev)) { // Can only consolidate if the previous is not dirty.
-      psize += prevsize;
-      p = prev;
-      if (RTCHECK(ok_address(m, prev))) { /* consolidate backward */
-        if (p != m->dv) {
-          unlink_chunk(m, p, prevsize);
-        }
-        else if ((next->head & INUSE_BITS) == INUSE_BITS) {
-          m->dvsize = psize;
-          set_free_with_pinuse(p, psize, next);
-          return;
-        }
+    do_check_freebuf_corrupt(m, prev);
+    psize += prevsize;
+    p = prev;
+    if (RTCHECK(ok_address(m, prev))) { /* consolidate backward */
+      if (p != m->dv) {
+        unlink_chunk(m, p, prevsize);
       }
-      else {
-        CORRUPTION_ERROR_ACTION(m);
+      else if ((next->head & INUSE_BITS) == INUSE_BITS) {
+        m->dvsize = psize;
+        set_free_with_pinuse(p, psize, next);
         return;
       }
+    }
+    else {
+      CORRUPTION_ERROR_ACTION(m);
+      return;
     }
   }
   if (RTCHECK(ok_address(m, next))) {
     // Only consolidate forward if the next is free and not dirty.
-    if(!cinuse(next) && !cdirty(next)) {
+    if(!cinuse(next)) {
+      do_check_freebuf_corrupt(m, next);
       if (next == m->top) {
         size_t tsize = m->topsize += psize;
         m->top = p;
@@ -3099,28 +3113,28 @@ dlfree_internal(void* mem) {
           }
           else {
             mchunkptr prev = chunk_minus_offset(p, prevsize);
-            if(!cdirty(prev)) { // Consolidate backward only if not dirty.
-              psize += prevsize;
-              p = prev;
-              if (RTCHECK(ok_address(fm, prev))) {
-                if (p != fm->dv) {
-                  unlink_chunk(fm, p, prevsize);
-                }
-                else if ((next->head & INUSE_BITS) == INUSE_BITS) {
-                  fm->dvsize = psize;
-                  set_free_with_pinuse(p, psize, next);
-                  goto postaction;
-                }
+            do_check_freebuf_corrupt(fm, prev);
+            psize += prevsize;
+            p = prev;
+            if (RTCHECK(ok_address(fm, prev))) {
+              if (p != fm->dv) {
+                unlink_chunk(fm, p, prevsize);
               }
-              else
-                goto erroraction;
+              else if ((next->head & INUSE_BITS) == INUSE_BITS) {
+                fm->dvsize = psize;
+                set_free_with_pinuse(p, psize, next);
+                goto postaction;
+              }
             }
+            else
+              goto erroraction;
           }
         }
 
         if (RTCHECK(ok_next(p, next) && ok_pinuse(next))) {
           // Consolidate forward only with a non-dirty chunk.
-          if(!cinuse(next) && !cdirty(next)) {
+          if(!cinuse(next)) {
+            do_check_freebuf_corrupt(fm, next);
             if (next == fm->top) {
               size_t tsize = fm->topsize += psize;
               fm->top = p;
@@ -3192,8 +3206,6 @@ dlfree(void* mem) {
 #define fm gm
 #endif // FOOTERS
     if(!PREACTION(fm)) {
-      assert(cdirty(p) == 0);
-      set_cdirty(p);
       insert_freebuf_chunk(fm, p);
       goto postaction;
     erroraction:
@@ -3204,7 +3216,6 @@ dlfree(void* mem) {
         for(size_t i=0; i<DEFAULT_SWEEP_SIZE; i++) {
           mchunkptr ret = freebin->fd;
           unlink_first_freebuf_chunk(fm, freebin, ret);
-          clear_cdirty(p);
           // Have to do free_internal after unlinking, otherwise the circular
           // list of freebufbin will get corrupted.
           dlfree_internal(chunk2mem(ret));
@@ -3290,8 +3301,7 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb,
         newp = p;
       }
     }
-    // Extend into next free chunk only if the next is not dirty.
-    else if(!cinuse(next) && !cdirty(next)) {
+    else if(!cinuse(next)) {
       size_t nextsize = chunksize(next);
       if (oldsize + nextsize >= nb) {
         size_t rsize = oldsize + nextsize - nb;

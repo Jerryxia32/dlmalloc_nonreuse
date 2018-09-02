@@ -2416,7 +2416,7 @@ static void init_top(mstate m, mchunkptr p, size_t psize) {
 
   m->top = p;
   m->topsize = psize;
-  p->head = psize | PINUSE_BIT;
+  p->head = dirtybits(p) | psize | PINUSE_BIT;
   /* set size of fake trailing chunk holding overhead space only once */
   chunk_plus_offset(p, psize)->head = TOP_FOOT_SIZE;
   m->trim_check = mparams.trim_threshold; /* reset on each update */
@@ -3140,7 +3140,7 @@ dlfree_internal(void* mem) {
             if (next == fm->top) {
               size_t tsize = fm->topsize += psize;
               fm->top = p;
-              p->head = tsize | PINUSE_BIT;
+              p->head = dirtybits(p) | tsize | PINUSE_BIT;
               if (p == fm->dv) {
                 fm->dv = 0;
                 fm->dvsize = 0;

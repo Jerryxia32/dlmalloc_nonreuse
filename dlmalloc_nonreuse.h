@@ -529,7 +529,7 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define HAVE_MMAP 1
 #define HAVE_MREMAP 0
 #define FOOTERS 0
-#define DEBUG 1
+#define DEBUG 0
 #define ABORT_ON_ASSERT_FAILURE 1
 
 // Override default non-reuse compile-time parameters here.

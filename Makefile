@@ -1,6 +1,6 @@
 CC?=clang
 CFLAGS=-Wall -Werror
-CFLAGS+=-O0
+CFLAGS+=-O3
 CFLAGS+=-std=c11
 CFLAGS+=-c
 CFLAGS+=-g

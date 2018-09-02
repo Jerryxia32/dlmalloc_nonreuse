@@ -769,6 +769,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define cdirty(p)           ((p)->head & CDIRTY_BIT)
 #define pdirty(p)           ((p)->head & PDIRTY_BIT)
 #define dirtybits(p)        ((p)->head & (PDIRTY_BIT|CDIRTY_BIT))
+#define inusebits(p)        ((p)->head & (PINUSE_BIT|CINUSE_BIT))
 #define is_inuse(p)         ((((p)->head & INUSE_BITS) != PINUSE_BIT))
 #define is_mmapped(p)       (((p)->head & INUSE_BITS) == 0)
 
@@ -795,6 +796,9 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 /* Get/set size at footer */
 #define get_foot(p, s)  (((mchunkptr)((char*)(p) + (s)))->prev_foot)
 #define set_foot(p, s)  (((mchunkptr)((char*)(p) + (s)))->prev_foot = (s))
+
+#define set_size_and_clear_pdirty_of_dirty_chunk(p, s)\
+  ((p)->head = (inusebits(p)|s|CDIRTY_BIT), set_foot(p, s))
 
 /* Set size, pinuse bit, and foot */
 #define set_size_and_pinuse_of_free_chunk(p, s)\
@@ -3223,14 +3227,12 @@ dlfree(void* mem) {
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
       if(!is_mmapped(p)) {
+#if 0
         size_t theSize = chunksize(p);
         mchunkptr theNext = chunk_plus_offset(p, theSize);
         check_freebuf_corrupt(fm, p);
         assert(!cdirty(p));
         assert(!pdirty(theNext));
-        set_cdirty(p);
-        set_pdirty(theNext);
-#if 0
         // Assert on magic guard value.
         if(pdirty(p)) {
           assert(*(size_t*)p == 0xdeadbeef);
@@ -3242,9 +3244,44 @@ dlfree(void* mem) {
         }
         *(size_t*)theNext = 0xdeadbeef;
 #endif
+        if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
+          size_t psize = chunksize(p);
+          mchunkptr next = chunk_plus_offset(p, psize);
+          if(pdirty(p)) {
+            size_t prevsize = p->prev_foot;
+            mchunkptr prev = chunk_minus_offset(p, prevsize);
+            check_freebuf_corrupt(fm, prev);
+            psize += prevsize;
+            p = prev;
+            if(RTCHECK(ok_address(fm, prev))) {
+              unlink_freebuf_chunk(fm, p);
+            }
+            else
+              goto erroraction;
+          }
+
+          if(RTCHECK(ok_next(p, next) && ok_pinuse(next))) {
+            // Consolidate forward only with a non-dirty chunk.
+            if(cdirty(next)) {
+              check_freebuf_corrupt(fm, next);
+              size_t nsize = chunksize(next);
+              psize += nsize;
+              unlink_freebuf_chunk(fm, next);
+              set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
+            }
+            else {
+              set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
+              set_pdirty(next);
+            }
+
+            insert_freebuf_chunk(fm, p);
+            goto postaction;
+          }
+        }
+      } else {
+        insert_freebuf_chunk(fm, p);
+        goto postaction;
       }
-      insert_freebuf_chunk(fm, p);
-      goto postaction;
     erroraction:
       USAGE_ERROR_ACTION(fm, p);
     postaction:

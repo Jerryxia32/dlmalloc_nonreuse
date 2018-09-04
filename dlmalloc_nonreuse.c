@@ -1099,6 +1099,7 @@ typedef struct malloc_segment* msegmentptr;
 struct malloc_state {
   binmap_t   smallmap;
   binmap_t   treemap;
+  size_t     freebufbytes;
   size_t     freebufsize;
   size_t     dvsize;
   size_t     topsize;
@@ -2071,6 +2072,7 @@ static void internal_malloc_stats(mstate m) {
   L->fd = P;\
   P->bk = L;\
   P->fd = B;\
+  M->freebufbytes += chunksize(P);\
   assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
   M->freebufsize++;\
 }
@@ -2085,6 +2087,7 @@ static void internal_malloc_stats(mstate m) {
     if(RTCHECK(ok_address(M, B) && B->fd == P)) {\
       F->bk = B;\
       B->fd = F;\
+      M->freebufbytes -= chunksize(P);\
       M->freebufsize--;\
       assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
     } else {\
@@ -2103,6 +2106,7 @@ static void internal_malloc_stats(mstate m) {
   if(RTCHECK(ok_address(M, F) && F->bk == P)) {\
     F->bk = B;\
     B->fd = F;\
+    M->freebufbytes -= chunksize(P);\
     M->freebufsize--;\
     assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
   } else {\
@@ -3263,39 +3267,26 @@ dlfree(void* mem) {
           }
         }
       } else {
-        dlfree_internal(chunk2mem(p));
-        mchunkptr freebin = &fm->freebufbin;
-        for(size_t i=0; i<DEFAULT_SWEEP_SIZE-1; i++) {
-          mchunkptr ret = freebin->fd;
-          if(ret == freebin) break;
-          unlink_first_freebuf_chunk(fm, freebin, ret);
-          size_t theSize = chunksize(ret);
-          mchunkptr theNext = chunk_plus_offset(ret, theSize);
-          assert(cdirty(ret));
-          assert(pdirty(theNext));
-          clear_cdirty(ret);
-          clear_pdirty(theNext);
-          // Have to do free_internal after unlinking, otherwise the circular
-          // list of freebufbin will get corrupted.
-          dlfree_internal(chunk2mem(ret));
-        }
-        fm->sweepTimes++;
-        goto endaction;
+        insert_freebuf_chunk(fm, p);
+        goto postaction;
       }
     erroraction:
       USAGE_ERROR_ACTION(fm, p);
     postaction:
-      if(fm->freebufsize == DEFAULT_FREEBUF_SIZE) {
+      if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT) &&
+          fm->freebufsize >= DEFAULT_SWEEP_SIZE) {
         mchunkptr freebin = &fm->freebufbin;
         for(size_t i=0; i<DEFAULT_SWEEP_SIZE; i++) {
           mchunkptr ret = freebin->fd;
           unlink_first_freebuf_chunk(fm, freebin, ret);
           size_t theSize = chunksize(ret);
           mchunkptr theNext = chunk_plus_offset(ret, theSize);
-          assert(cdirty(ret));
-          assert(pdirty(theNext));
-          clear_cdirty(ret);
-          clear_pdirty(theNext);
+          if(!is_mmapped(ret)) {
+            assert(cdirty(ret));
+            assert(pdirty(theNext));
+            clear_cdirty(ret);
+            clear_pdirty(theNext);
+          }
           // Have to do free_internal after unlinking, otherwise the circular
           // list of freebufbin will get corrupted.
           dlfree_internal(chunk2mem(ret));
@@ -3304,7 +3295,6 @@ dlfree(void* mem) {
         fm->sweepTimes++;
 #endif // SWEEP_STATS
       }
-    endaction:
       POSTACTION(fm);
     }
   }

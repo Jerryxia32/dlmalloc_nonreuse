@@ -529,13 +529,20 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define HAVE_MMAP 1
 #define HAVE_MREMAP 0
 #define FOOTERS 0
+#define FREEBUF_PERCENT_MODE 1
 
 // Override default non-reuse compile-time parameters here.
 #define DEFAULT_FREEBUF_SIZE ((size_t)1024U)
+#define DEFAULT_FREEBUF_PERCENT ((double)0.2)
 #define DEFAULT_SWEEP_SIZE ((size_t)16U)
 #define SWEEP_STATS 1
 
 //-----------------------------------------------------------------------------
+#ifndef FREEBUF_PERCENT_MODE
+#define FREEBUF_PERCENT_MODE 1
+#else // FREEBUF_PERCENT_MODE
+#define FREEBUF_PERCENT_MODE 0
+#endif // FREEBUF_PERCENT_MODE
 // the default size of the free buffer pool
 #ifndef DEFAULT_FREEBUF_SIZE
 #define DEFAULT_FREEBUF_SIZE ((size_t)1024U)

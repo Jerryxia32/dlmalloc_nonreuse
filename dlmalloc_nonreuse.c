@@ -3228,23 +3228,6 @@ dlfree(void* mem) {
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
       if(!is_mmapped(p)) {
-#if 0
-        size_t theSize = chunksize(p);
-        mchunkptr theNext = chunk_plus_offset(p, theSize);
-        check_freebuf_corrupt(fm, p);
-        assert(!cdirty(p));
-        assert(!pdirty(theNext));
-        // Assert on magic guard value.
-        if(pdirty(p)) {
-          assert(*(size_t*)p == 0xdeadbeef);
-        }
-        if(cdirty(theNext)) {
-          size_t theNextSize = chunksize(theNext);
-          mchunkptr theNextNext = chunk_plus_offset(theNext, theNextSize);
-          assert(*(size_t*)theNextNext == 0xdeadbeef);
-        }
-        *(size_t*)theNext = 0xdeadbeef;
-#endif
         if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);
           mchunkptr next = chunk_plus_offset(p, psize);

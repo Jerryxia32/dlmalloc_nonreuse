@@ -2073,7 +2073,6 @@ static void internal_malloc_stats(mstate m) {
   P->bk = L;\
   P->fd = B;\
   M->freebufbytes += chunksize(P);\
-  assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
   M->freebufsize++;\
 }
 
@@ -2089,7 +2088,6 @@ static void internal_malloc_stats(mstate m) {
       B->fd = F;\
       M->freebufbytes -= chunksize(P);\
       M->freebufsize--;\
-      assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
     } else {\
       CORRUPTION_ERROR_ACTION(M);\
     }\
@@ -2108,7 +2106,6 @@ static void internal_malloc_stats(mstate m) {
     B->fd = F;\
     M->freebufbytes -= chunksize(P);\
     M->freebufsize--;\
-    assert(M->freebufsize < DEFAULT_FREEBUF_SIZE);\
   } else {\
     CORRUPTION_ERROR_ACTION(M);\
   }\

@@ -538,11 +538,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 
 //-----------------------------------------------------------------------------
 
-// the default size of the free buffer pool
-#ifndef DEFAULT_FREEBUF_SIZE
-#define DEFAULT_FREEBUF_SIZE ((size_t)1024U)
-#endif // DEFAULT_FREEBUF_SIZE
-
 // the default number of how many capabilities to sweep per sweep
 #ifndef DEFAULT_SWEEP_SIZE
 #define DEFAULT_SWEEP_SIZE ((size_t)16U)

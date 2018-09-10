@@ -1717,7 +1717,7 @@ static void do_check_any_chunk(mstate m, mchunkptr p) {
 /* Check properties of top chunk */
 static void do_check_top_chunk(mstate m, mchunkptr p) {
   msegmentptr sp = segment_holding(m, (char*)p);
-  size_t  sz = p->head & ~INUSE_BITS; /* third-lowest bit can be set! */
+  size_t  sz = p->head & ~FLAG_BITS; /* third-lowest bit can be set! */
   assert(sp != 0);
   assert((is_aligned(chunk2mem(p))) || (p->head == FENCEPOST_HEAD));
   assert(ok_address(m, p));
@@ -1780,7 +1780,7 @@ static void do_check_free_chunk(mstate m, mchunkptr p) {
 static void do_check_malloced_chunk(mstate m, void* mem, size_t s) {
   if (mem != 0) {
     mchunkptr p = mem2chunk(mem);
-    size_t sz = p->head & ~INUSE_BITS;
+    size_t sz = p->head & ~FLAG_BITS;
     do_check_inuse_chunk(m, p);
     assert((sz & CHUNK_ALIGN_MASK) == 0);
     assert(sz >= MIN_CHUNK_SIZE);
@@ -3235,7 +3235,6 @@ dlfree(void* mem) {
           if(pdirty(p)) {
             size_t prevsize = p->prev_foot;
             mchunkptr prev = chunk_minus_offset(p, prevsize);
-            check_freebuf_corrupt(fm, prev);
             psize += prevsize;
             p = prev;
             if(RTCHECK(ok_address(fm, prev))) {
@@ -3248,7 +3247,6 @@ dlfree(void* mem) {
           if(RTCHECK(ok_next(p, next) && ok_pinuse(next))) {
             // Consolidate forward only with a non-dirty chunk.
             if(cdirty(next)) {
-              check_freebuf_corrupt(fm, next);
               size_t nsize = chunksize(next);
               psize += nsize;
               unlink_freebuf_chunk(fm, next);

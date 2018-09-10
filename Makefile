@@ -1,5 +1,5 @@
 CC?=clang
-DEBUG?=0
+DEBUG?=1
 CFLAGS=-Wall -Werror
 CFLAGS+=-std=c11
 CFLAGS+=-c

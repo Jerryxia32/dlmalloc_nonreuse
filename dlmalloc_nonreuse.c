@@ -29,9 +29,9 @@
 #endif
 #define DEBUG 0
 #endif /* DEBUG */
-#if !defined(WIN32) && !defined(LACKS_TIME_H)
+#if !defined(LACKS_TIME_H)
 #include <time.h>        /* for magic initialization */
-#endif /* WIN32 */
+#endif /* LACKS_TIME_H */
 #ifndef LACKS_STDLIB_H
 #include <stdlib.h>      /* for abort() */
 #endif /* LACKS_STDLIB_H */
@@ -68,7 +68,6 @@ extern void*     sbrk(ptrdiff_t);
 
 /* Declarations for locking */
 #if USE_LOCKS
-#ifndef WIN32
 #if defined (__SVR4) && defined (__sun)  /* solaris */
 #include <thread.h>
 #elif !defined(LACKS_SCHED_H)
@@ -77,53 +76,12 @@ extern void*     sbrk(ptrdiff_t);
 #if (defined(USE_RECURSIVE_LOCKS) && USE_RECURSIVE_LOCKS != 0) || !USE_SPIN_LOCKS
 #include <pthread.h>
 #endif /* USE_RECURSIVE_LOCKS ... */
-#elif defined(_MSC_VER)
-#ifndef _M_AMD64
-/* These are already defined on AMD64 builds */
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-LONG __cdecl _InterlockedCompareExchange(LONG volatile *Dest, LONG Exchange, LONG Comp);
-LONG __cdecl _InterlockedExchange(LONG volatile *Target, LONG Value);
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
-#endif /* _M_AMD64 */
-#pragma intrinsic (_InterlockedCompareExchange)
-#pragma intrinsic (_InterlockedExchange)
-#define interlockedcompareexchange _InterlockedCompareExchange
-#define interlockedexchange _InterlockedExchange
-#elif defined(WIN32) && defined(__GNUC__)
-#define interlockedcompareexchange(a, b, c) __sync_val_compare_and_swap(a, c, b)
-#define interlockedexchange __sync_lock_test_and_set
-#endif /* Win32 */
-#else /* USE_LOCKS */
 #endif /* USE_LOCKS */
 
 #ifndef LOCK_AT_FORK
 #define LOCK_AT_FORK 0
 #endif
 
-/* Declarations for bit scanning on win32 */
-#if defined(_MSC_VER) && _MSC_VER>=1300
-#ifndef BitScanForward /* Try to avoid pulling in WinNT.h */
-#ifdef __cplusplus
-extern "C" {
-#endif /* __cplusplus */
-unsigned char _BitScanForward(unsigned long *index, unsigned long mask);
-unsigned char _BitScanReverse(unsigned long *index, unsigned long mask);
-#ifdef __cplusplus
-}
-#endif /* __cplusplus */
-
-#define BitScanForward _BitScanForward
-#define BitScanReverse _BitScanReverse
-#pragma intrinsic(_BitScanForward)
-#pragma intrinsic(_BitScanReverse)
-#endif /* BitScanForward */
-#endif /* defined(_MSC_VER) && _MSC_VER>=1300 */
-
-#ifndef WIN32
 #ifndef malloc_getpagesize
 #  ifdef _SC_PAGESIZE         /* some SVR4 systems omit an underscore */
 #    ifndef _SC_PAGE_SIZE
@@ -137,9 +95,6 @@ unsigned char _BitScanReverse(unsigned long *index, unsigned long mask);
        extern size_t getpagesize();
 #      define malloc_getpagesize getpagesize()
 #    else
-#      ifdef WIN32 /* use supplied emulation of getpagesize */
-#        define malloc_getpagesize getpagesize()
-#      else
 #        ifndef LACKS_SYS_PARAM_H
 #          include <sys/param.h>
 #        endif
@@ -164,10 +119,8 @@ unsigned char _BitScanReverse(unsigned long *index, unsigned long mask);
 #            endif
 #          endif
 #        endif
-#      endif
 #    endif
 #  endif
-#endif
 #endif
 
 /* ------------------- size_t and alignment properties -------------------- */
@@ -368,18 +321,11 @@ static FORCEINLINE void x86_clear_lock(int* sl) {
 #define CAS_LOCK(sl)     x86_cas_lock(sl)
 #define CLEAR_LOCK(sl)   x86_clear_lock(sl)
 
-#else /* Win32 MSC */
-#define CAS_LOCK(sl)     interlockedexchange(sl, (LONG)1)
-#define CLEAR_LOCK(sl)   interlockedexchange (sl, (LONG)0)
-
 #endif /* ... gcc spins locks ... */
 
 /* How to yield for a spin lock */
 #define SPINS_PER_YIELD       63
-#if defined(_MSC_VER)
-#define SLEEP_EX_DURATION     50 /* delay for yield/sleep */
-#define SPIN_LOCK_YIELD  SleepEx(SLEEP_EX_DURATION, FALSE)
-#elif defined (__SVR4) && defined (__sun) /* solaris */
+#if defined (__SVR4) && defined (__sun) /* solaris */
 #define SPIN_LOCK_YIELD   thr_yield();
 #elif !defined(LACKS_SCHED_H)
 #define SPIN_LOCK_YIELD   sched_yield();
@@ -478,35 +424,6 @@ static FORCEINLINE int recursive_try_lock(MLOCK_T *lk) {
 #define INITIAL_LOCK(lk)      ((lk)->threadid = (THREAD_ID_T)0, (lk)->sl = 0, (lk)->c = 0)
 #define DESTROY_LOCK(lk)      (0)
 #endif /* USE_RECURSIVE_LOCKS */
-
-#elif defined(WIN32) /* Win32 critical sections */
-#define MLOCK_T               CRITICAL_SECTION
-#define ACQUIRE_LOCK(lk)      (EnterCriticalSection(lk), 0)
-#define RELEASE_LOCK(lk)      LeaveCriticalSection(lk)
-#define TRY_LOCK(lk)          TryEnterCriticalSection(lk)
-#define INITIAL_LOCK(lk)      (!InitializeCriticalSectionAndSpinCount((lk), 0x80000000|4000))
-#define DESTROY_LOCK(lk)      (DeleteCriticalSection(lk), 0)
-#define NEED_GLOBAL_LOCK_INIT
-
-static MLOCK_T malloc_global_mutex;
-static volatile LONG malloc_global_mutex_status;
-
-/* Use spin loop to initialize global lock */
-static void init_malloc_global_mutex() {
-  for (;;) {
-    long stat = malloc_global_mutex_status;
-    if (stat > 0)
-      return;
-    /* transition to < 0 while initializing, then to > 0) */
-    if (stat == 0 &&
-        interlockedcompareexchange(&malloc_global_mutex_status, (LONG)-1, (LONG)0) == 0) {
-      InitializeCriticalSection(&malloc_global_mutex);
-      interlockedexchange(&malloc_global_mutex_status, (LONG)1);
-      return;
-    }
-    SleepEx(0, FALSE);
-  }
-}
 
 #else /* pthreads-based locks */
 #define MLOCK_T               pthread_mutex_t
@@ -1363,21 +1280,6 @@ static size_t traverse_and_check(mstate m);
   }\
 }
 
-#elif defined(_MSC_VER) && _MSC_VER>=1300
-#define compute_tree_index(S, I)\
-{\
-  size_t X = S >> TREEBIN_SHIFT;\
-  if (X == 0)\
-    I = 0;\
-  else if (X > 0xFFFF)\
-    I = NTREEBINS-1;\
-  else {\
-    unsigned int K;\
-    _BitScanReverse((DWORD *) &K, (DWORD) X);\
-    I =  (bindex_t)((K << 1) + ((S >> (K + (TREEBIN_SHIFT-1)) & 1)));\
-  }\
-}
-
 #else /* GNUC */
 #define compute_tree_index(S, I)\
 {\
@@ -1451,14 +1353,6 @@ static size_t traverse_and_check(mstate m);
 {\
   unsigned int J;\
   J = _bit_scan_forward (X); \
-  I = (bindex_t)J;\
-}
-
-#elif defined(_MSC_VER) && _MSC_VER>=1300
-#define compute_bit2idx(X, I)\
-{\
-  unsigned int J;\
-  _BitScanForward((DWORD *) &J, X);\
   I = (bindex_t)J;\
 }
 
@@ -1601,11 +1495,6 @@ static void post_fork_child(void)  { INITIAL_LOCK(&(gm)->mutex); }
 
 /* Initialize mparams */
 static int init_mparams(void) {
-#ifdef NEED_GLOBAL_LOCK_INIT
-  if (malloc_global_mutex_status <= 0)
-    init_malloc_global_mutex();
-#endif
-
   ACQUIRE_MALLOC_GLOBAL_LOCK();
   if (mparams.magic == 0) {
     size_t magic;
@@ -1655,9 +1544,7 @@ static int init_mparams(void) {
       }
       else
 #endif /* USE_DEV_RANDOM */
-#ifdef WIN32
-      magic = (size_t)(GetTickCount() ^ (size_t)0x55555555U);
-#elif defined(LACKS_TIME_H)
+#if defined(LACKS_TIME_H)
       magic = (size_t)&magic ^ (size_t)0x55555555U;
 #else
       magic = (size_t)(time(0) ^ (size_t)0x55555555U);

@@ -222,22 +222,6 @@ size_t. On some systems, literal values are not automatically extended
 to size_t precision unless they are explicitly casted. You can also
 use the symbolic values MAX_SIZE_T, SIZE_T_ONE, etc below.
 
-WIN32                    default: defined if _WIN32 defined
-  Defining WIN32 sets up defaults for MS environment and compilers.
-  Otherwise defaults are for unix. Beware that there seem to be some
-  cases where this malloc might not be a pure drop-in replacement for
-  Win32 malloc: Random-looking failures from Win32 GDI API's (eg;
-  SetDIBits()) may be due to bugs in some video driver implementations
-  when pixel buffers are malloc()ed, and the region spans more than
-  one VirtualAlloc()ed region. Because dlmalloc uses a small (64Kb)
-  default granularity, pixel buffers may straddle virtual allocation
-  regions more often than when using the Microsoft allocator.  You can
-  avoid this by using VirtualAlloc() and VirtualFree() for all pixel
-  buffers rather than using malloc().  If this is not possible,
-  recompile this malloc with a larger DEFAULT_GRANULARITY. Note:
-  in cases where MSC and gcc (cygwin) are known to differ on WIN32,
-  conditions use _MSC_VER to distinguish them.
-
 DLMALLOC_EXPORT       default: extern
   Defines how public APIs are declared. If you want to export via a
   Windows DLL, you might define this as
@@ -261,7 +245,7 @@ ONLY_MSPACES             default: 0 (false)
 
 USE_LOCKS                default: 0 (false)
   Causes each call to each public routine to be surrounded with
-  pthread or WIN32 mutex lock/unlock. (If set true, this can be
+  pthread or mutex lock/unlock. (If set true, this can be
   overridden on a per-mspace basis for mspace versions.) If set to a
   non-zero value other than 1, locks are used, but their
   implementation is left out, so lock functions must be supplied manually,
@@ -397,7 +381,7 @@ HAVE_MREMAP               default: 1 on linux, else 0
 
 MMAP_CLEARS               default: 1 except on WINCE.
   True if mmap clears memory so calloc doesn't need to. This is true
-  for standard unix mmap using /dev/zero and on WIN32 except for WINCE.
+  for standard unix mmap using /dev/zero.
 
 USE_BUILTIN_FFS            default: 0 (i.e., not used)
   Causes malloc to use the builtin ffs() function to compute indices.
@@ -410,9 +394,7 @@ USE_BUILTIN_FFS            default: 0 (i.e., not used)
 malloc_getpagesize         default: derive from system includes, or 4096.
   The system page size. To the extent possible, this malloc manages
   memory from the system in page-size units.  This may be (and
-  usually is) a function rather than a constant. This is ignored
-  if WIN32, where page size is determined using getSystemInfo during
-  initialization.
+  usually is) a function rather than a constant.
 
 USE_DEV_RANDOM             default: 0 (i.e., not used)
   Causes malloc to use /dev/random to initialize secure magic seed for
@@ -440,12 +422,11 @@ REALLOC_ZERO_BYTES_FREES    default: not defined
 
 LACKS_UNISTD_H, LACKS_FCNTL_H, LACKS_SYS_PARAM_H, LACKS_SYS_MMAN_H
 LACKS_STRINGS_H, LACKS_STRING_H, LACKS_SYS_TYPES_H,  LACKS_ERRNO_H
-LACKS_STDLIB_H LACKS_SCHED_H LACKS_TIME_H  default: NOT defined unless on WIN32
+LACKS_STDLIB_H LACKS_SCHED_H LACKS_TIME_H  default: NOT defined
   Define these if your system does not have these header files.
   You might need to manually insert some of the declarations they provide.
 
 DEFAULT_GRANULARITY        default: page size if MORECORE_CONTIGUOUS,
-                                system_info.dwAllocationGranularity in WIN32,
                                 otherwise 64K.
       Also settable using mallopt(M_GRANULARITY, x)
   The unit for allocating and deallocating memory from the system.  On
@@ -557,41 +538,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define DLMALLOC_EXPORT extern
 #endif
 
-#ifndef WIN32
-#ifdef _WIN32
-#define WIN32 1
-#endif  /* _WIN32 */
-#ifdef _WIN32_WCE
-#define LACKS_FCNTL_H
-#define WIN32 1
-#endif /* _WIN32_WCE */
-#endif  /* WIN32 */
-#ifdef WIN32
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
-#include <tchar.h>
-#define HAVE_MMAP 1
-#define HAVE_MORECORE 0
-#define LACKS_UNISTD_H
-#define LACKS_SYS_PARAM_H
-#define LACKS_SYS_MMAN_H
-#define LACKS_STRING_H
-#define LACKS_STRINGS_H
-#define LACKS_SYS_TYPES_H
-#define LACKS_ERRNO_H
-#define LACKS_SCHED_H
-#ifndef MALLOC_FAILURE_ACTION
-#define MALLOC_FAILURE_ACTION
-#endif /* MALLOC_FAILURE_ACTION */
-#ifndef MMAP_CLEARS
-#ifdef _WIN32_WCE /* WINCE reportedly does not clear */
-#define MMAP_CLEARS 0
-#else
-#define MMAP_CLEARS 1
-#endif /* _WIN32_WCE */
-#endif /*MMAP_CLEARS */
-#endif  /* WIN32 */
-
 #if defined(DARWIN) || defined(_DARWIN)
 /* Mac OSX docs advise not to use sbrk; it seems better to use mmap */
 #ifndef HAVE_MORECORE
@@ -616,11 +562,10 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
                     (defined(USE_RECURSIVE_LOCKS) && USE_RECURSIVE_LOCKS != 0))
 #endif /* USE_LOCKS */
 
-#if USE_LOCKS /* Spin locks for gcc >= 4.1, older gcc on x86, MSC >= 1310 */
-#if ((defined(__GNUC__) &&                                              \
+#if USE_LOCKS /* Spin locks for gcc >= 4.1, older gcc on x86 */
+#if (defined(__GNUC__) &&                                              \
       ((__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 1)) ||      \
-       defined(__i386__) || defined(__x86_64__))) ||                    \
-     (defined(_MSC_VER) && _MSC_VER>=1310))
+       defined(__i386__) || defined(__x86_64__)))
 #ifndef USE_SPIN_LOCKS
 #define USE_SPIN_LOCKS 1
 #endif /* USE_SPIN_LOCKS */
@@ -797,15 +742,11 @@ struct mallinfo {
 #ifndef FORCEINLINE
   #if defined(__GNUC__)
 #define FORCEINLINE __inline __attribute__ ((always_inline))
-  #elif defined(_MSC_VER)
-    #define FORCEINLINE __forceinline
   #endif
 #endif
 #ifndef NOINLINE
   #if defined(__GNUC__)
     #define NOINLINE __attribute__ ((noinline))
-  #elif defined(_MSC_VER)
-    #define NOINLINE __declspec(noinline)
   #else
     #define NOINLINE
   #endif

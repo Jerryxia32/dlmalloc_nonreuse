@@ -787,7 +787,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define chunk_minus_offset(p, s) ((mchunkptr)(((char*)(p)) - (s)))
 
 /* Ptr to next or previous physical malloc_chunk. */
-#define next_chunk(p) ((mchunkptr)( ((char*)(p)) + ((p)->head & ~FLAG_BITS)))
+#define next_chunk(p) ((mchunkptr)( ((char*)(p)) + chunksize(p) ))
 #define prev_chunk(p) ((mchunkptr)( ((char*)(p)) - ((p)->prev_foot) ))
 
 /* extract next chunk's pinuse bit */
@@ -1554,12 +1554,12 @@ static size_t traverse_and_check(mstate m);
 /* Set cinuse bit and pinuse bit of next chunk */
 #define set_inuse(M,p,s)\
   ((p)->head = (pdirty(p)|((p)->head & PINUSE_BIT)|s|CINUSE_BIT),\
-  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT, clear_pdirty((mchunkptr)(((char*)(p)) + (s))))
+  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT)
 
 /* Set cinuse and pinuse of this chunk and pinuse of next chunk */
 #define set_inuse_and_pinuse(M,p,s)\
   ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
-  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT, clear_pdirty((mchunkptr)(((char*)(p)) + (s))))
+  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT)
 
 /* Set size, cinuse and pinuse bit of this chunk */
 #define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
@@ -2388,9 +2388,8 @@ static void* mmap_alloc(mstate m, size_t nb) {
 }
 
 /* Realloc using mmap */
-static mchunkptr mmap_resize(mstate m, mchunkptr oldp, size_t nb, int flags) {
+static mchunkptr mmap_resize(mstate m, mchunkptr oldp, size_t nb) {
   size_t oldsize = chunksize(oldp);
-  (void)flags; /* placate people compiling -Wunused */
   if (is_small(nb)) /* Can't shrink mmap regions below small size */
     return 0;
   /* Keep old chunk if big enough but not too big */
@@ -3316,24 +3315,28 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
 /* ------------ Internal support for realloc, memalign, etc -------------- */
 
 /* Try to realloc; only in-place unless can_move true */
-static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb,
-                                   int can_move) {
+static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb) {
   mchunkptr newp = 0;
   size_t oldsize = chunksize(p);
   mchunkptr next = chunk_plus_offset(p, oldsize);
   if (RTCHECK(ok_address(m, p) && ok_inuse(p) &&
               ok_next(p, next) && ok_pinuse(next))) {
     if (is_mmapped(p)) {
-      newp = mmap_resize(m, p, nb, can_move);
+      newp = mmap_resize(m, p, nb);
     }
     else if (oldsize >= nb) {             /* already big enough */
+      /* If already big enough, we do not shrink.
+       * We CANNOT shrink, because this chunk might have already been used to
+       * create a chunk that spans across below and above the new upper bound,
+       * which is not a subset of either the remainder or the shrinked chunk.
       size_t rsize = oldsize - nb;
-      if (rsize >= MIN_CHUNK_SIZE) {      /* split off remainder */
+      if (rsize >= MIN_CHUNK_SIZE) {      // Split off remainder.
         mchunkptr r = chunk_plus_offset(p, nb);
         set_inuse(m, p, nb);
         set_inuse(m, r, rsize);
         dispose_chunk(m, r, rsize);
       }
+       */
       newp = p;
     }
     else if (next == m->top) {  /* extend into top */
@@ -3714,15 +3717,14 @@ void* dlrealloc(void* oldmem, size_t bytes) {
     }
 #endif /* FOOTERS */
     if (!PREACTION(m)) {
-      //mchunkptr newp = try_realloc_chunk(m, oldp, nb, 1);
-      //POSTACTION(m);
-      //if (newp != 0) {
-      //  check_inuse_chunk(m, newp);
-      //  mem = chunk2mem(newp);
-      //}
-      //else {
+      mchunkptr newp = try_realloc_chunk(m, oldp, nb);
       POSTACTION(m);
-      { //TODO: Now for simplicity just malloc and copy and free.
+      if (newp != 0) {
+        check_inuse_chunk(m, newp);
+        mem = chunk2mem(newp);
+        clear_pdirty(next_chunk(newp));
+      }
+      else {
         mem = internal_malloc(m, bytes);
         if (mem != 0) {
           size_t oc = chunksize(oldp) - overhead_for(oldp);
@@ -3754,7 +3756,7 @@ void* dlrealloc_in_place(void* oldmem, size_t bytes) {
       }
 #endif /* FOOTERS */
       if (!PREACTION(m)) {
-        mchunkptr newp = try_realloc_chunk(m, oldp, nb, 0);
+        mchunkptr newp = try_realloc_chunk(m, oldp, nb);
         POSTACTION(m);
         if (newp == oldp) {
           check_inuse_chunk(m, newp);

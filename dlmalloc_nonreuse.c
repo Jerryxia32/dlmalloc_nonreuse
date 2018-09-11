@@ -288,14 +288,14 @@ static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
 
 #elif USE_SPIN_LOCKS
 
-/* First, define CAS_LOCK and CLEAR_LOCK on ints */
-/* Note CAS_LOCK defined to return 0 on success */
+// First, define CAS_LOCK and CLEAR_LOCK on atomic_flag.
+// Note CAS_LOCK defined to return 0 on success.
+// Use C11 atomics for portability.
 
-#if defined(__GNUC__)&& (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 1))
-#define CAS_LOCK(sl)     __sync_lock_test_and_set(sl, 1)
-#define CLEAR_LOCK(sl)   __sync_lock_release(sl)
+#include<stdatomic.h>
 
-#endif /* ... gcc spins locks ... */
+#define CAS_LOCK(sl)     atomic_flag_test_and_set(sl)
+#define CLEAR_LOCK(sl)   atomic_flag_clear(sl)
 
 /* How to yield for a spin lock */
 #define SPINS_PER_YIELD       63
@@ -308,24 +308,27 @@ static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
 #endif /* ... yield ... */
 
 #if !defined(USE_RECURSIVE_LOCKS) || USE_RECURSIVE_LOCKS == 0
+static size_t lockContended;
 /* Plain spin locks use single word (embedded in malloc_states) */
-static int spin_acquire_lock(int *sl) {
+static int
+spin_acquire_lock(atomic_flag* sl) {
+  lockContended++;
   int spins = 0;
-  while (*(volatile int *)sl != 0 || CAS_LOCK(sl)) {
-    if ((++spins & SPINS_PER_YIELD) == 0) {
+  while(CAS_LOCK(sl)) {
+    if((++spins & SPINS_PER_YIELD) == 0) {
       SPIN_LOCK_YIELD;
     }
   }
   return 0;
 }
 
-#define MLOCK_T               int
+#define MLOCK_T               atomic_flag
 #define TRY_LOCK(sl)          !CAS_LOCK(sl)
 #define RELEASE_LOCK(sl)      CLEAR_LOCK(sl)
 #define ACQUIRE_LOCK(sl)      (CAS_LOCK(sl)? spin_acquire_lock(sl) : 0)
-#define INITIAL_LOCK(sl)      (*sl = 0)
+#define INITIAL_LOCK(sl)      (atomic_flag_clear(sl))
 #define DESTROY_LOCK(sl)      (0)
-static MLOCK_T malloc_global_mutex = 0;
+static MLOCK_T malloc_global_mutex = ATOMIC_FLAG_INIT;
 
 #else /* USE_RECURSIVE_LOCKS */
 /* types for lock owners */
@@ -340,16 +343,15 @@ static MLOCK_T malloc_global_mutex = 0;
 #define EQ_OWNER(X,Y)         pthread_equal(X, Y)
 
 struct malloc_recursive_lock {
-  int sl;
+  atomic_flag sl;
   unsigned int c;
   THREAD_ID_T threadid;
 };
 
 #define MLOCK_T  struct malloc_recursive_lock
-static MLOCK_T malloc_global_mutex = { 0, 0, (THREAD_ID_T)0};
+static MLOCK_T malloc_global_mutex = { ATOMIC_FLAG_INIT, 0, (THREAD_ID_T)0};
 
 static FORCEINLINE void recursive_release_lock(MLOCK_T *lk) {
-  assert(lk->sl != 0);
   if (--lk->c == 0) {
     CLEAR_LOCK(&lk->sl);
   }
@@ -395,7 +397,7 @@ static FORCEINLINE int recursive_try_lock(MLOCK_T *lk) {
 #define RELEASE_LOCK(lk)      recursive_release_lock(lk)
 #define TRY_LOCK(lk)          recursive_try_lock(lk)
 #define ACQUIRE_LOCK(lk)      recursive_acquire_lock(lk)
-#define INITIAL_LOCK(lk)      ((lk)->threadid = (THREAD_ID_T)0, (lk)->sl = 0, (lk)->c = 0)
+#define INITIAL_LOCK(lk)      ((lk)->threadid = (THREAD_ID_T)0, atomic_flag_clear(&(lk)->sl), (lk)->c = 0)
 #define DESTROY_LOCK(lk)      (0)
 #endif /* USE_RECURSIVE_LOCKS */
 
@@ -1422,12 +1424,12 @@ static size_t traverse_and_check(mstate m);
 /* Set cinuse bit and pinuse bit of next chunk */
 #define set_inuse(M,p,s)\
   ((p)->head = (pdirty(p)|((p)->head & PINUSE_BIT)|s|CINUSE_BIT),\
-  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT)
+  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT, clear_pdirty((mchunkptr)(((char*)(p)) + (s))))
 
 /* Set cinuse and pinuse of this chunk and pinuse of next chunk */
 #define set_inuse_and_pinuse(M,p,s)\
   ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
-  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT)
+  ((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT, clear_pdirty((mchunkptr)(((char*)(p)) + (s))))
 
 /* Set size, cinuse and pinuse bit of this chunk */
 #define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
@@ -1904,9 +1906,12 @@ static void internal_malloc_stats(mstate m) {
       }
     }
     POSTACTION(m); /* drop lock */
-    fprintf(stderr, "max system bytes = %10lu\n", (unsigned long)(maxfp));
-    fprintf(stderr, "system bytes     = %10lu\n", (unsigned long)(fp));
-    fprintf(stderr, "in use bytes     = %10lu\n", (unsigned long)(used));
+    fprintf(stderr, "max system bytes      = %10zu\n", maxfp);
+    fprintf(stderr, "system bytes          = %10zu\n", fp);
+    fprintf(stderr, "in use bytes          = %10zu\n", used);
+#if USE_LOCKS && USE_SPIN_LOCKS && (!defined(USE_RECURSIVE_LOCKS) || USE_RECURSIVE_LOCKS==0)
+    fprintf(stderr, "global lock contended = %10zu\n", lockContended);
+#endif // USE_LOCKS
   }
 }
 #endif /* NO_MALLOC_STATS */
@@ -2390,7 +2395,7 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
 #if SWEEP_STATS
 void
 print_sweep_stats() {
-  printf("Sweeps: %zd.\n", gm->sweepTimes);
+  fprintf(stderr, "Sweeps: %zd.\n", gm->sweepTimes);
 }
 #endif // SWEEP_STATS
 
@@ -3583,7 +3588,8 @@ void* dlrealloc(void* oldmem, size_t bytes) {
       if (newp != 0) {
         check_inuse_chunk(m, newp);
         mem = chunk2mem(newp);
-        clear_pdirty(next_chunk(newp));
+        if(!is_mmapped(newp))
+          clear_pdirty(next_chunk(newp));
       }
       else {
         mem = internal_malloc(m, bytes);

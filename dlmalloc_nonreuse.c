@@ -1929,7 +1929,7 @@ static void internal_malloc_stats(mstate m) {
 #define insert_freebuf_chunk(M, P) {\
   mchunkptr B = &M->freebufbin;\
   mchunkptr L = B;\
-  if(RTCHECK(ok_address(M, B->bk)))\
+  if(RTCHECK(ok_address(M, B->bk) || B->bk==&M->freebufbin))\
     L = B->bk;\
   else {\
     CORRUPTION_ERROR_ACTION(M);\
@@ -1948,8 +1948,8 @@ static void internal_malloc_stats(mstate m) {
   mchunkptr B = P->bk;\
   assert(P != B);\
   assert(P != F);\
-  if(RTCHECK(ok_address(M, F) && F->bk == P)) { \
-    if(RTCHECK(ok_address(M, B) && B->fd == P)) {\
+  if(RTCHECK(ok_address(M, F) || F==&M->freebufbin) && F->bk == P) { \
+    if(RTCHECK(ok_address(M, B) || B==&M->freebufbin) && B->fd == P) {\
       F->bk = B;\
       B->fd = F;\
       M->freebufbytes -= chunksize(P);\
@@ -1967,7 +1967,7 @@ static void internal_malloc_stats(mstate m) {
   mchunkptr F = P->fd;\
   assert(P != B);\
   assert(P != F);\
-  if(RTCHECK(ok_address(M, F) && F->bk == P)) {\
+  if(RTCHECK(ok_address(M, F) || F==&M->freebufbin) && F->bk == P) {\
     F->bk = B;\
     B->fd = F;\
     M->freebufbytes -= chunksize(P);\

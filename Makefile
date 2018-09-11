@@ -1,4 +1,5 @@
 CC?=clang
+LD?=ld.lld
 DEBUG?=1
 CFLAGS=-Wall -Werror
 CFLAGS+=-std=c11
@@ -16,10 +17,10 @@ CFLAGS+=-Wno-error=unused-variable
 
 ifeq ($(DEBUG),1)
 libdlmalloc_nonreuse.so: dlmalloc_nonreuse.c.o
-	$(CC) -shared $^ -o $@
+	$(LD) -shared $^ -o $@
 else
 libdlmalloc_nonreuse.so: dlmalloc_nonreuse.c.o
-	$(CC) -shared $^ -o $@
+	$(LD) -shared $^ -o $@
 	strip $@
 endif
 

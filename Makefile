@@ -11,6 +11,7 @@ CFLAGS+=-DDEBUG=1 -DABORT_ON_ASSERT_FAILURE=1
 else
 CFLAGS+=-O3
 CFLAGS+=-g0
+CFLAGS+=-DINSECURE=1
 endif
 CFLAGS+=-Wno-error=unused-function
 CFLAGS+=-Wno-error=unused-variable

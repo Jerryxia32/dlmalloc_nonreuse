@@ -59,11 +59,7 @@
 #endif /* LACKS_FCNTL_H */
 #endif /* HAVE_MMAP */
 #ifndef LACKS_UNISTD_H
-#include <unistd.h>     /* for sbrk, sysconf */
-#else /* LACKS_UNISTD_H */
-#if !defined(__FreeBSD__) && !defined(__OpenBSD__) && !defined(__NetBSD__)
-extern void*     sbrk(ptrdiff_t);
-#endif /* FreeBSD etc */
+#include <unistd.h>     /* for sysconf */
 #endif /* LACKS_UNISTD_H */
 
 /* Declarations for locking */
@@ -156,13 +152,13 @@ extern void*     sbrk(ptrdiff_t);
 /* -------------------------- MMAP preliminaries ------------------------- */
 
 /*
-   If HAVE_MORECORE or HAVE_MMAP are false, we just define calls and
+   If HAVE_MMAP is false, we just define calls and
    checks to fail so compiler optimizer can delete code rather than
    using so many "#if"s.
 */
 
 
-/* MORECORE and MMAP must return MFAIL on failure */
+/* MMAP must return MFAIL on failure */
 #define MFAIL                ((void*)(MAX_SIZE_T))
 #define CMFAIL               ((char*)(MFAIL)) /* defined for convenience */
 
@@ -191,11 +187,6 @@ static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
 
 #define DIRECT_MMAP_DEFAULT(s) MMAP_DEFAULT(s)
 #endif /* HAVE_MMAP */
-
-/**
- * Define CALL_MORECORE
- */
-#define CALL_MORECORE(S)        MFAIL
 
 /**
  * Define CALL_MMAP/CALL_MUNMAP/CALL_DIRECT_MMAP
@@ -245,12 +236,7 @@ static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
   one per-mspace lock.
 
   The global lock_ensures that mparams.magic and other unique
-  mparams values are initialized only once. It also protects
-  sequences of calls to MORECORE.  In many cases sys_alloc requires
-  two calls, that should not be interleaved with calls by other
-  threads.  This does not protect against direct calls to MORECORE
-  by other threads not using this lock, so there is still code to
-  cope the best we can on interference.
+  mparams values are initialized only once.
 
   Per-mspace locks surround calls to malloc, free, etc.
   By default, locks are simple non-reentrant mutexes.
@@ -834,11 +820,8 @@ typedef struct malloc_tree_chunk* tbinptr; /* The type of bins of trees */
 
   Segment management mainly comes into play for spaces allocated by
   MMAP.  Any call to MMAP might or might not return memory that is
-  adjacent to an existing segment.  MORECORE normally contiguously
-  extends the current space, so this space is almost always adjacent,
-  which is simpler and faster to deal with. (This is why MORECORE is
-  used preferentially to MMAP when both are available -- see
-  sys_alloc.)  When allocating using MMAP, we don't use any of the
+  adjacent to an existing segment.
+  When allocating using MMAP, we don't use any of the
   hinting mechanisms (inconsistently) supported in various
   implementations of unix mmap, or distinguish reserving from
   committing memory. Instead, we just ask for space, and exploit
@@ -874,9 +857,6 @@ typedef struct malloc_tree_chunk* tbinptr; /* The type of bins of trees */
   * If USE_MMAP_BIT set, the segment may be merged with
     other surrounding mmapped segments and trimmed/de-allocated
     using munmap.
-  * If neither bit is set, then the segment was obtained using
-    MORECORE so can be merged with surrounding MORECORE'd segments
-    and deallocated/trimmed using MORECORE with negative arguments.
 */
 
 struct malloc_segment {
@@ -949,7 +929,7 @@ typedef struct malloc_segment* msegmentptr;
 
   Address check support
     The least_addr field is the least address ever obtained from
-    MORECORE or MMAP. Attempted frees and reallocs of any address less
+    MMAP. Attempted frees and reallocs of any address less
     than this are trapped (unless INSECURE is defined).
 
   Magic tag
@@ -959,11 +939,11 @@ typedef struct malloc_segment* msegmentptr;
     The maximum allowed bytes to allocate from system (zero means no limit)
 
   Flags
-    Bits recording whether to use MMAP, locks, or contiguous MORECORE
+    Bits recording whether to use MMAP, locks
 
   Statistics
     Each space keeps track of current and maximum system memory
-    obtained via MORECORE or MMAP.
+    obtained via MMAP.
 
   Trim support
     Fields holding the amount of unused topmost memory that should trigger
@@ -1126,11 +1106,7 @@ static int has_segment_link(mstate m, msegmentptr ss) {
   }
 }
 
-#ifndef MORECORE_CANNOT_TRIM
 #define should_trim(M,s)  ((s) > (M)->trim_check)
-#else  /* MORECORE_CANNOT_TRIM */
-#define should_trim(M,s)  (0)
-#endif /* MORECORE_CANNOT_TRIM */
 
 /*
   TOP_FOOT_SIZE is padding at the end of a segment, including space
@@ -1379,7 +1355,7 @@ static size_t traverse_and_check(mstate m);
 */
 
 #if !INSECURE
-/* Check if address a is at least as high as any from MORECORE or MMAP */
+/* Check if address a is at least as high as any from MMAP */
 #define ok_address(M, a) ((char*)(a) >= (M)->least_addr)
 /* Check if address of next chunk n is higher than base chunk p */
 #define ok_next(p, n)    ((char*)(p) < (char*)(n))
@@ -1948,8 +1924,8 @@ static void internal_malloc_stats(mstate m) {
   mchunkptr B = P->bk;\
   assert(P != B);\
   assert(P != F);\
-  if(RTCHECK(ok_address(M, F) || F==&M->freebufbin) && F->bk == P) { \
-    if(RTCHECK(ok_address(M, B) || B==&M->freebufbin) && B->fd == P) {\
+  if(RTCHECK((ok_address(M, F) || F==&M->freebufbin) && F->bk == P)) { \
+    if(RTCHECK((ok_address(M, B) || B==&M->freebufbin) && B->fd == P)) {\
       F->bk = B;\
       B->fd = F;\
       M->freebufbytes -= chunksize(P);\
@@ -1967,7 +1943,7 @@ static void internal_malloc_stats(mstate m) {
   mchunkptr F = P->fd;\
   assert(P != B);\
   assert(P != F);\
-  if(RTCHECK(ok_address(M, F) || F==&M->freebufbin) && F->bk == P) {\
+  if(RTCHECK((ok_address(M, F) || F==&M->freebufbin) && F->bk == P)) {\
     F->bk = B;\
     B->fd = F;\
     M->freebufbytes -= chunksize(P);\
@@ -2401,7 +2377,7 @@ print_sweep_stats() {
 
 /* -------------------------- System allocation -------------------------- */
 
-/* Get memory from system using MORECORE or MMAP */
+/* Get memory from system using MMAP */
 static void* sys_alloc(mstate m, size_t nb) {
   char* tbase = CMFAIL;
   size_t tsize = 0;
@@ -2429,18 +2405,7 @@ static void* sys_alloc(mstate m, size_t nb) {
   /*
     Try getting memory in any of three ways (in most-preferred to
     least-preferred order):
-    1. A call to MORECORE that can normally contiguously extend memory.
-       (disabled if not MORECORE_CONTIGUOUS or not HAVE_MORECORE or
-       or main space is mmapped or a previous contiguous call failed)
     2. A call to MMAP new space (disabled if not HAVE_MMAP).
-       Note that under the default settings, if MORECORE is unable to
-       fulfill a request, and HAVE_MMAP is true, then mmap is
-       used as a noncontiguous system allocator. This is a useful backup
-       strategy for systems with holes in address spaces -- in this case
-       sbrk cannot contiguously expand the heap, but mmap may be able to
-       find space.
-    3. A call to MORECORE that cannot usually contiguously extend memory.
-       (disabled if not HAVE_MORECORE)
 
    In all cases, we need to request enough bytes from system to ensure
    we can malloc nb bytes upon success, so pad with enough space for
@@ -2983,7 +2948,12 @@ dlfree_internal(void* mem) {
 #else /* FOOTERS */
 #define fm gm
 #endif /* FOOTERS */
+
+#if FREEBUF_MODE
     if (1) {
+#else // FREEBUF_MODE
+    if(!PREACTION(fm)) {
+#endif // FREEBUF_MODE
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
         size_t psize = chunksize(p);
@@ -3069,6 +3039,9 @@ dlfree_internal(void* mem) {
     erroraction:
       USAGE_ERROR_ACTION(fm, p);
     postaction:
+#if !FREEBUF_MODE
+      POSTACTION(fm);
+#endif // !FREEBUF_MODE
       ;
     }
   }
@@ -3079,7 +3052,7 @@ dlfree_internal(void* mem) {
 
 void
 dlfree(void* mem) {
-
+#if FREEBUF_MODE
   if(mem != 0) {
     mchunkptr p  = mem2chunk(mem);
 #if FOOTERS
@@ -3161,6 +3134,13 @@ dlfree(void* mem) {
 #if !FOOTERS
 #undef fm
 #endif /* FOOTERS */
+
+#else // FREEBUF_MODE
+  dlfree_internal(mem);
+#if SWEEP_STATS
+  if(mem!=0) gm->sweepTimes++;
+#endif // SWEEP_STATS
+#endif
 }
 
 void* dlcalloc(size_t n_elements, size_t elem_size) {

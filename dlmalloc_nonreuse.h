@@ -84,8 +84,7 @@
        freed. This improves security by rejecting frees/reallocs that
        could corrupt heap memory, in addition to the checks preventing
        writes to statics that are always on.  This may further improve
-       security at the expense of time and space overhead.  (Note that
-       FOOTERS may also be worth using with MSPACES.)
+       security at the expense of time and space overhead.
 
        By default detected errors cause the program to abort (calling
        "abort()"). You can override this to instead proceed past
@@ -126,14 +125,7 @@
        ptmalloc (See http://www.malloc.de), which are derived from
        versions of this malloc.
 
-  System requirements: Any combination of MORECORE and/or MMAP/MUNMAP
-       This malloc can use unix sbrk or any emulation (invoked using
-       the CALL_MORECORE macro) and/or mmap/munmap or any emulation
-       (invoked using CALL_MMAP/CALL_MUNMAP) to get and release system
-       memory.  On most unix systems, it tends to work best if both
-       MORECORE and MMAP are enabled.  On Win32, it uses emulations
-       based on VirtualAlloc. It also uses common C library functions
-       like memset.
+  System requirements: MMAP/MUNMAP
 
   Compliance: I believe it is compliant with the Single Unix Specification
        (See http://www.unix.org). Also SVID/XPG, ANSI C, and probably
@@ -163,7 +155,7 @@
   All operations (except malloc_stats and mallinfo) have execution
   times that are bounded by a constant factor of the number of bits in
   a size_t, not counting any clearing in calloc or copying in realloc,
-  or actions surrounding MORECORE and MMAP that have times
+  or actions surrounding MMAP that have times
   proportional to the number of non-contiguous regions returned by
   system allocation routines, which is often just 1. In real-time
   applications, you can optionally suppress segment traversals using
@@ -183,37 +175,6 @@
 
   For a longer but out of date high-level description, see
      http://gee.cs.oswego.edu/dl/html/malloc.html
-
-* MSPACES
-  If MSPACES is defined, then in addition to malloc, free, etc.,
-  this file also defines mspace_malloc, mspace_free, etc. These
-  are versions of malloc routines that take an "mspace" argument
-  obtained using create_mspace, to control all internal bookkeeping.
-  If ONLY_MSPACES is defined, only these versions are compiled.
-  So if you would like to use this allocator for only some allocations,
-  and your system malloc for others, you can compile with
-  ONLY_MSPACES and then do something like...
-    static mspace mymspace = create_mspace(0,0); // for example
-    #define mymalloc(bytes)  mspace_malloc(mymspace, bytes)
-
-  (Note: If you only need one instance of an mspace, you can instead
-  use "USE_DL_PREFIX" to relabel the global malloc.)
-
-  You can similarly create thread-local allocators by storing
-  mspaces as thread-locals. For example:
-    static __thread mspace tlms = 0;
-    void*  tlmalloc(size_t bytes) {
-      if (tlms == 0) tlms = create_mspace(0, 0);
-      return mspace_malloc(tlms, bytes);
-    }
-    void  tlfree(void* mem) { mspace_free(tlms, mem); }
-
-  Unless FOOTERS is defined, each mspace is completely independent.
-  You cannot allocate from one and free to another (although
-  conformance is only weakly checked, so usage errors are not always
-  caught). If FOOTERS is defined, then each chunk carries around a tag
-  indicating its originating mspace, and frees are directed to their
-  originating spaces. Normally, this requires use of locks.
 
  -------------------------  Compile-time options ---------------------------
 
@@ -235,13 +196,6 @@ MALLOC_ALIGNMENT         default: (size_t)(2 * sizeof(void *))
   alignments would suffice. It may be defined as larger than this
   though. Note however that code and data structures are optimized for
   the case of 8-byte alignment.
-
-MSPACES                  default: 0 (false)
-  If true, compile in support for independent allocation spaces.
-  This is only supported if HAVE_MMAP is true.
-
-ONLY_MSPACES             default: 0 (false)
-  If true, only compile in mspace versions, not regular versions.
 
 USE_LOCKS                default: 0 (false)
   Causes each call to each public routine to be surrounded with
@@ -331,47 +285,15 @@ MALLOC_FAILURE_ACTION     default: sets errno to ENOMEM, or no-op on win32
   The action to take before "return 0" when malloc fails to be able to
   return memory because there is none available.
 
-HAVE_MORECORE             default: 1 (true) unless win32 or ONLY_MSPACES
-  True if this system supports sbrk or an emulation of it.
-
-MORECORE                  default: sbrk
-  The name of the sbrk-style system routine to call to obtain more
-  memory.  See below for guidance on writing custom MORECORE
-  functions. The type of the argument to sbrk/MORECORE varies across
-  systems.  It cannot be size_t, because it supports negative
-  arguments, so it is normally the signed type of the same width as
-  size_t (sometimes declared as "intptr_t").  It doesn't much matter
-  though. Internally, we only call it with arguments less than half
-  the max value of a size_t, which should work across all reasonable
-  possibilities, although sometimes generating compiler warnings.
-
-MORECORE_CONTIGUOUS       default: 1 (true) if HAVE_MORECORE
-  If true, take advantage of fact that consecutive calls to MORECORE
-  with positive arguments always return contiguous increasing
-  addresses.  This is true of unix sbrk. It does not hurt too much to
-  set it true anyway, since malloc copes with non-contiguities.
-  Setting it false when definitely non-contiguous saves time
-  and possibly wasted space it would take to discover this though.
-
-MORECORE_CANNOT_TRIM      default: NOT defined
-  True if MORECORE cannot release space back to the system when given
-  negative arguments. This is generally necessary only if you are
-  using a hand-crafted MORECORE function that cannot handle negative
-  arguments.
-
 NO_SEGMENT_TRAVERSAL       default: 0
   If non-zero, suppresses traversals of memory segments
-  returned by either MORECORE or CALL_MMAP. This disables
+  returned by CALL_MMAP. This disables
   merging of segments that are contiguous, and selectively
   releasing them to the OS if unused, but bounds execution times.
 
 HAVE_MMAP                 default: 1 (true)
-  True if this system supports mmap or an emulation of it.  If so, and
-  HAVE_MORECORE is not true, MMAP is used for all system
-  allocation. If set and HAVE_MORECORE is true as well, MMAP is
-  primarily used to directly allocate very large blocks. It is also
-  used as a backup strategy in cases where MORECORE fails to provide
-  space from system. Note: A single call to MUNMAP is assumed to be
+  True if this system supports mmap or an emulation of it.
+  Note: A single call to MUNMAP is assumed to be
   able to unmap memory that may have be allocated using multiple calls
   to MMAP, so long as they are adjacent.
 
@@ -426,12 +348,10 @@ LACKS_STDLIB_H LACKS_SCHED_H LACKS_TIME_H  default: NOT defined
   Define these if your system does not have these header files.
   You might need to manually insert some of the declarations they provide.
 
-DEFAULT_GRANULARITY        default: page size if MORECORE_CONTIGUOUS,
-                                otherwise 64K.
+DEFAULT_GRANULARITY        default: 64K.
       Also settable using mallopt(M_GRANULARITY, x)
-  The unit for allocating and deallocating memory from the system.  On
-  most systems with contiguous MORECORE, there is no reason to
-  make this more than a page. However, systems with MMAP tend to
+  The unit for allocating and deallocating memory from the system.
+  However, systems with MMAP tend to
   either require or encourage larger granularities.  You can increase
   this value to prevent system allocation functions to be called so
   often, especially if they are slow.  The value must be at least one
@@ -443,8 +363,7 @@ DEFAULT_GRANULARITY        default: page size if MORECORE_CONTIGUOUS,
 DEFAULT_TRIM_THRESHOLD    default: 2MB
       Also settable using mallopt(M_TRIM_THRESHOLD, x)
   The maximum amount of unused top-most memory to keep before
-  releasing via malloc_trim in free().  Automatic trimming is mainly
-  useful in long-lived programs using contiguous MORECORE.  Because
+  releasing via malloc_trim in free(). Because
   trimming via sbrk can be slow on some systems, and can sometimes be
   wasteful (in cases where programs immediately afterward allocate
   more large chunks) the value should be high enough so that your
@@ -506,11 +425,11 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define USE_LOCKS 1
 #define USE_SPIN_LOCKS 1
 #define USE_RECURSIVE_LOCKS 0
-#define HAVE_MORECORE 0
 #define HAVE_MMAP 1
 #define HAVE_MREMAP 0
 #define FOOTERS 0
 #define MAX_RELEASE_CHECK_RATE 8191
+#define FREEBUF_MODE 1
 
 // Override default non-reuse compile-time parameters here.
 #define DEFAULT_FREEBUF_PERCENT ((double)0.2)
@@ -518,6 +437,10 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define SWEEP_STATS 1
 
 //-----------------------------------------------------------------------------
+
+#ifndef FREEBUF_MODE
+#define FREEBUF_MODE 1
+#endif // FREEBUF_MODE
 
 // the default number of how many capabilities to sweep per sweep
 #ifndef DEFAULT_SWEEP_SIZE
@@ -540,14 +463,11 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 
 #if defined(DARWIN) || defined(_DARWIN)
 /* Mac OSX docs advise not to use sbrk; it seems better to use mmap */
-#ifndef HAVE_MORECORE
-#define HAVE_MORECORE 0
 #define HAVE_MMAP 1
 /* OSX allocators provide 16 byte alignment */
 #ifndef MALLOC_ALIGNMENT
 #define MALLOC_ALIGNMENT ((size_t)16U)
 #endif
-#endif  /* HAVE_MORECORE */
 #endif  /* DARWIN */
 
 #ifndef LACKS_SYS_TYPES_H
@@ -576,16 +496,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define USE_SPIN_LOCKS 0
 #endif /* USE_LOCKS */
 
-#ifndef ONLY_MSPACES
-#define ONLY_MSPACES 0
-#endif  /* ONLY_MSPACES */
-#ifndef MSPACES
-#if ONLY_MSPACES
-#define MSPACES 1
-#else   /* ONLY_MSPACES */
-#define MSPACES 0
-#endif  /* ONLY_MSPACES */
-#endif  /* MSPACES */
 #ifndef MALLOC_ALIGNMENT
 #define MALLOC_ALIGNMENT ((size_t)(2 * sizeof(void *)))
 #endif  /* MALLOC_ALIGNMENT */
@@ -622,23 +532,12 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #ifndef MALLOC_FAILURE_ACTION
 #define MALLOC_FAILURE_ACTION  errno = ENOMEM;
 #endif  /* MALLOC_FAILURE_ACTION */
-#ifndef HAVE_MORECORE
-#if ONLY_MSPACES
-#define HAVE_MORECORE 0
-#else   /* ONLY_MSPACES */
-#define HAVE_MORECORE 1
-#endif  /* ONLY_MSPACES */
-#endif  /* HAVE_MORECORE */
 #ifndef DEFAULT_GRANULARITY
 #define DEFAULT_GRANULARITY ((size_t)64U * (size_t)1024U)
 #endif  /* DEFAULT_GRANULARITY */
 
 #ifndef DEFAULT_TRIM_THRESHOLD
-#ifndef MORECORE_CANNOT_TRIM
 #define DEFAULT_TRIM_THRESHOLD ((size_t)2U * (size_t)1024U * (size_t)1024U)
-#else   /* MORECORE_CANNOT_TRIM */
-#define DEFAULT_TRIM_THRESHOLD MAX_SIZE_T
-#endif  /* MORECORE_CANNOT_TRIM */
 #endif  /* DEFAULT_TRIM_THRESHOLD */
 #ifndef DEFAULT_MMAP_THRESHOLD
 #if HAVE_MMAP
@@ -761,8 +660,6 @@ extern "C" {
 #ifndef FORCEINLINE
  #define FORCEINLINE
 #endif
-
-#if !ONLY_MSPACES
 
 /* ------------------- Declarations of public routines ------------------- */
 
@@ -1212,160 +1109,6 @@ DLMALLOC_EXPORT void  dlmalloc_stats(void);
   assert(malloc_usable_size(p) >= 256);
 */
 size_t dlmalloc_usable_size(void*);
-
-#endif /* ONLY_MSPACES */
-
-#if MSPACES
-
-/*
-  mspace is an opaque type representing an independent
-  region of space that supports mspace_malloc, etc.
-*/
-typedef void* mspace;
-
-/*
-  create_mspace creates and returns a new independent space with the
-  given initial capacity, or, if 0, the default granularity size.  It
-  returns null if there is no system memory available to create the
-  space.  If argument locked is non-zero, the space uses a separate
-  lock to control access. The capacity of the space will grow
-  dynamically as needed to service mspace_malloc requests.  You can
-  control the sizes of incremental increases of this space by
-  compiling with a different DEFAULT_GRANULARITY or dynamically
-  setting with mallopt(M_GRANULARITY, value).
-*/
-DLMALLOC_EXPORT mspace create_mspace(size_t capacity, int locked);
-
-/*
-  destroy_mspace destroys the given space, and attempts to return all
-  of its memory back to the system, returning the total number of
-  bytes freed. After destruction, the results of access to all memory
-  used by the space become undefined.
-*/
-DLMALLOC_EXPORT size_t destroy_mspace(mspace msp);
-
-/*
-  create_mspace_with_base uses the memory supplied as the initial base
-  of a new mspace. Part (less than 128*sizeof(size_t) bytes) of this
-  space is used for bookkeeping, so the capacity must be at least this
-  large. (Otherwise 0 is returned.) When this initial space is
-  exhausted, additional memory will be obtained from the system.
-  Destroying this space will deallocate all additionally allocated
-  space (if possible) but not the initial base.
-*/
-DLMALLOC_EXPORT mspace create_mspace_with_base(void* base, size_t capacity, int locked);
-
-/*
-  mspace_track_large_chunks controls whether requests for large chunks
-  are allocated in their own untracked mmapped regions, separate from
-  others in this mspace. By default large chunks are not tracked,
-  which reduces fragmentation. However, such chunks are not
-  necessarily released to the system upon destroy_mspace.  Enabling
-  tracking by setting to true may increase fragmentation, but avoids
-  leakage when relying on destroy_mspace to release all memory
-  allocated using this space.  The function returns the previous
-  setting.
-*/
-DLMALLOC_EXPORT int mspace_track_large_chunks(mspace msp, int enable);
-
-
-/*
-  mspace_malloc behaves as malloc, but operates within
-  the given space.
-*/
-DLMALLOC_EXPORT void* mspace_malloc(mspace msp, size_t bytes);
-
-/*
-  mspace_free behaves as free, but operates within
-  the given space.
-
-  If compiled with FOOTERS==1, mspace_free is not actually needed.
-  free may be called instead of mspace_free because freed chunks from
-  any space are handled by their originating spaces.
-*/
-DLMALLOC_EXPORT void mspace_free(mspace msp, void* mem);
-
-/*
-  mspace_realloc behaves as realloc, but operates within
-  the given space.
-
-  If compiled with FOOTERS==1, mspace_realloc is not actually
-  needed.  realloc may be called instead of mspace_realloc because
-  realloced chunks from any space are handled by their originating
-  spaces.
-*/
-DLMALLOC_EXPORT void* mspace_realloc(mspace msp, void* mem, size_t newsize);
-
-/*
-  mspace_calloc behaves as calloc, but operates within
-  the given space.
-*/
-DLMALLOC_EXPORT void* mspace_calloc(mspace msp, size_t n_elements, size_t elem_size);
-
-/*
-  mspace_memalign behaves as memalign, but operates within
-  the given space.
-*/
-DLMALLOC_EXPORT void* mspace_memalign(mspace msp, size_t alignment, size_t bytes);
-
-/*
-  mspace_independent_calloc behaves as independent_calloc, but
-  operates within the given space.
-*/
-DLMALLOC_EXPORT void** mspace_independent_calloc(mspace msp, size_t n_elements,
-                                 size_t elem_size, void* chunks[]);
-
-/*
-  mspace_independent_comalloc behaves as independent_comalloc, but
-  operates within the given space.
-*/
-DLMALLOC_EXPORT void** mspace_independent_comalloc(mspace msp, size_t n_elements,
-                                   size_t sizes[], void* chunks[]);
-
-/*
-  mspace_footprint() returns the number of bytes obtained from the
-  system for this space.
-*/
-DLMALLOC_EXPORT size_t mspace_footprint(mspace msp);
-
-/*
-  mspace_max_footprint() returns the peak number of bytes obtained from the
-  system for this space.
-*/
-DLMALLOC_EXPORT size_t mspace_max_footprint(mspace msp);
-
-
-#if !NO_MALLINFO
-/*
-  mspace_mallinfo behaves as mallinfo, but reports properties of
-  the given space.
-*/
-DLMALLOC_EXPORT struct mallinfo mspace_mallinfo(mspace msp);
-#endif /* NO_MALLINFO */
-
-/*
-  malloc_usable_size(void* p) behaves the same as malloc_usable_size;
-*/
-DLMALLOC_EXPORT size_t mspace_usable_size(const void* mem);
-
-/*
-  mspace_malloc_stats behaves as malloc_stats, but reports
-  properties of the given space.
-*/
-DLMALLOC_EXPORT void mspace_malloc_stats(mspace msp);
-
-/*
-  mspace_trim behaves as malloc_trim, but
-  operates within the given space.
-*/
-DLMALLOC_EXPORT int mspace_trim(mspace msp, size_t pad);
-
-/*
-  An alias for mallopt.
-*/
-DLMALLOC_EXPORT int mspace_mallopt(int, int);
-
-#endif /* MSPACES */
 
 #ifdef __cplusplus
 }  /* end of extern "C" */

@@ -2953,6 +2953,9 @@ dlfree_internal(void* mem) {
     if (1) {
 #else // FREEBUF_MODE
     if(!PREACTION(fm)) {
+#if SWEEP_STATS
+      fm->sweepTimes++;
+#endif // SWEEP_STATS
 #endif // FREEBUF_MODE
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
@@ -3137,9 +3140,6 @@ dlfree(void* mem) {
 
 #else // FREEBUF_MODE
   dlfree_internal(mem);
-#if SWEEP_STATS
-  if(mem!=0) gm->sweepTimes++;
-#endif // SWEEP_STATS
 #endif
 }
 

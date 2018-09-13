@@ -119,6 +119,28 @@
 #  endif
 #endif
 
+#ifdef MALLOC_UTRACE
+#include<sys/param.h>
+#include<sys/uio.h>
+#include<sys/ktrace.h>
+static int malloc_utrace = 1;
+static int malloc_utrace_suspend = 0;
+
+typedef struct {
+  void *p;
+  size_t s;
+  void *r;
+} malloc_utrace_t;
+
+#define	UTRACE(a, b, c)\
+  if(malloc_utrace && malloc_utrace_suspend == 0) {\
+    malloc_utrace_t ut = {a, b, c};\
+    utrace(&ut, sizeof(ut));\
+  }
+#else
+#define UTRACE(a, b, c)
+#endif
+
 /* ------------------- size_t and alignment properties -------------------- */
 
 /* The byte and bit size of a size_t */
@@ -1452,6 +1474,8 @@ static int init_mparams(void) {
     size_t magic;
     size_t psize;
     size_t gsize;
+
+    UTRACE(0, 0, 0);
 
     psize = malloc_getpagesize;
     gsize = ((DEFAULT_GRANULARITY != 0)? DEFAULT_GRANULARITY : psize);
@@ -2921,6 +2945,7 @@ void* dlmalloc(size_t bytes) {
       clear_pdirty(theNext);
     }
     POSTACTION(gm);
+    UTRACE(0, bytes, mem);
     return mem;
   }
 
@@ -2952,6 +2977,7 @@ dlfree_internal(void* mem) {
 #if FREEBUF_MODE
     if (1) {
 #else // FREEBUF_MODE
+    UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
 #if SWEEP_STATS
       fm->sweepTimes++;
@@ -3067,6 +3093,7 @@ dlfree(void* mem) {
 #else // FOOTERS
 #define fm gm
 #endif // FOOTERS
+    UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
       if(!is_mmapped(p)) {
@@ -3562,6 +3589,9 @@ void* dlrealloc(void* oldmem, size_t bytes) {
       return 0;
     }
 #endif /* FOOTERS */
+#ifdef MALLOC_UTRACE
+    malloc_utrace_suspend++;
+#endif
     if (!PREACTION(m)) {
       mchunkptr newp = try_realloc_chunk(m, oldp, nb);
       POSTACTION(m);
@@ -3580,6 +3610,10 @@ void* dlrealloc(void* oldmem, size_t bytes) {
         }
       }
     }
+#ifdef MALLOC_UTRACE
+    malloc_utrace_suspend--;
+#endif
+    UTRACE(oldmem, bytes, mem);
   }
   return mem;
 }
@@ -3616,10 +3650,13 @@ void* dlrealloc_in_place(void* oldmem, size_t bytes) {
 }
 
 void* dlmemalign(size_t alignment, size_t bytes) {
+  void* ret;
   if (alignment <= MALLOC_ALIGNMENT) {
-    return dlmalloc(bytes);
-  }
-  return internal_memalign(gm, alignment, bytes);
+    ret = dlmalloc(bytes);
+  } else
+    ret = internal_memalign(gm, alignment, bytes);
+  UTRACE(0, bytes, ret);
+  return ret;
 }
 
 int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {

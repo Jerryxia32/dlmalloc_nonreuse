@@ -3136,11 +3136,11 @@ dlfree(void* mem) {
     erroraction:
       USAGE_ERROR_ACTION(fm, p);
     postaction:
-      if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT) &&
-          fm->freebufsize >= DEFAULT_SWEEP_SIZE) {
+      if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT)) {
         mchunkptr freebin = &fm->freebufbin;
         for(size_t i=0; i<DEFAULT_SWEEP_SIZE; i++) {
           mchunkptr ret = freebin->fd;
+          if(ret == freebin) break;
           unlink_first_freebuf_chunk(fm, freebin, ret);
           size_t theSize = chunksize(ret);
           mchunkptr theNext = chunk_plus_offset(ret, theSize);

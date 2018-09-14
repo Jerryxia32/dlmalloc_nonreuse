@@ -297,10 +297,6 @@ HAVE_MMAP                 default: 1 (true)
   able to unmap memory that may have be allocated using multiple calls
   to MMAP, so long as they are adjacent.
 
-HAVE_MREMAP               default: 1 on linux, else 0
-  If true realloc() uses mremap() to re-allocate large blocks and
-  extend or shrink allocation spaces.
-
 MMAP_CLEARS               default: 1 except on WINCE.
   True if mmap clears memory so calloc doesn't need to. This is true
   for standard unix mmap using /dev/zero.
@@ -426,7 +422,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define USE_SPIN_LOCKS 1
 #define USE_RECURSIVE_LOCKS 0
 #define HAVE_MMAP 1
-#define HAVE_MREMAP 0
 #define FOOTERS 0
 #define MAX_RELEASE_CHECK_RATE 8191
 #define FREEBUF_MODE 1
@@ -523,14 +518,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #ifndef MMAP_CLEARS
 #define MMAP_CLEARS 1
 #endif  /* MMAP_CLEARS */
-#ifndef HAVE_MREMAP
-#ifdef linux
-#define HAVE_MREMAP 1
-#define _GNU_SOURCE /* Turns on mremap() definition */
-#else   /* linux */
-#define HAVE_MREMAP 0
-#endif  /* linux */
-#endif  /* HAVE_MREMAP */
 #ifndef MALLOC_FAILURE_ACTION
 #define MALLOC_FAILURE_ACTION  errno = ENOMEM;
 #endif  /* MALLOC_FAILURE_ACTION */

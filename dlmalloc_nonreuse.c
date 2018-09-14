@@ -988,6 +988,7 @@ struct malloc_state {
   size_t     footprint_limit; /* zero means no limit */
 #if SWEEP_STATS
   size_t     sweepTimes;
+  size_t     sweptBytes;
 #endif // SWEEP_STATS
   flag_t     mflags;
 #if USE_LOCKS
@@ -2372,6 +2373,7 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
 void
 print_sweep_stats() {
   fprintf(stderr, "Sweeps: %zd.\n", gm->sweepTimes);
+  fprintf(stderr, "Swept bytes: %zd.\n", gm->sweptBytes);
 }
 #endif // SWEEP_STATS
 
@@ -2957,6 +2959,7 @@ dlfree_internal(void* mem) {
     if(!PREACTION(fm)) {
 #if SWEEP_STATS
       fm->sweepTimes++;
+      fm->sweptBytes += fm->footprint;
 #endif // SWEEP_STATS
 #endif // FREEBUF_MODE
       check_inuse_chunk(fm, p);
@@ -3132,6 +3135,7 @@ dlfree(void* mem) {
         }
 #if SWEEP_STATS
         fm->sweepTimes++;
+        fm->sweptBytes += fm->footprint;
 #endif // SWEEP_STATS
       }
       POSTACTION(fm);

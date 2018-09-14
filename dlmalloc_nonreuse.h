@@ -435,7 +435,8 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 // Override default non-reuse compile-time parameters here.
 #define DEFAULT_FREEBUF_PERCENT ((double)0.2)
 #define DEFAULT_SWEEP_SIZE ((size_t)16U)
-#define SWEEP_STATS 1
+// Some platforms depend on malloc when doing atexit, so disable it by default.
+#define SWEEP_STATS 0
 
 //-----------------------------------------------------------------------------
 

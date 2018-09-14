@@ -45,14 +45,8 @@
 #endif /* USE_BUILTIN_FFS */
 #if HAVE_MMAP
 #ifndef LACKS_SYS_MMAN_H
-/* On some versions of linux, mremap decl in mman.h needs __USE_GNU set */
-#if (defined(linux) && !defined(__USE_GNU))
-#define __USE_GNU 1
-#include <sys/mman.h>    /* for mmap */
-#undef __USE_GNU
-#else
-#include <sys/mman.h>    /* for mmap */
-#endif /* linux */
+// On some versions of linux, __USE_MISC must be set for MAP_ANONYMOUS.
+#include<sys/mman.h> // for mmap
 #endif /* LACKS_SYS_MMAN_H */
 #ifndef LACKS_FCNTL_H
 #include <fcntl.h>
@@ -188,24 +182,15 @@ typedef struct {
 
 #define MUNMAP_DEFAULT(a, s)  munmap((a), (s))
 #define MMAP_PROT            (PROT_READ|PROT_WRITE)
-#if !defined(MAP_ANONYMOUS) && defined(MAP_ANON)
+
+#if !defined(MAP_ANONYMOUS) && !defined(MAP_ANON)
+#error "Anonymous mapping must be provided. #define __USE_MISC for linux?"
+#elif !defined(MAP_ANONYMOUS)
 #define MAP_ANONYMOUS        MAP_ANON
-#endif /* MAP_ANON */
-#ifdef MAP_ANONYMOUS
+#endif // !defined(MAP_ANONYMOUS) && !defined(MAP_ANON)
+
 #define MMAP_FLAGS           (MAP_PRIVATE|MAP_ANONYMOUS)
 #define MMAP_DEFAULT(s)       mmap(0, (s), MMAP_PROT, MMAP_FLAGS, -1, 0)
-#else /* MAP_ANONYMOUS */
-/*
-   Nearly all versions of mmap support MAP_ANONYMOUS, so the following
-   is unlikely to be needed, but is supplied just in case.
-*/
-#define MMAP_FLAGS           (MAP_PRIVATE)
-static int dev_zero_fd = -1; /* Cached file descriptor for /dev/zero. */
-#define MMAP_DEFAULT(s) ((dev_zero_fd < 0) ? \
-           (dev_zero_fd = open("/dev/zero", O_RDWR), \
-            mmap(0, (s), MMAP_PROT, MMAP_FLAGS, dev_zero_fd, 0)) : \
-            mmap(0, (s), MMAP_PROT, MMAP_FLAGS, dev_zero_fd, 0))
-#endif /* MAP_ANONYMOUS */
 
 #define DIRECT_MMAP_DEFAULT(s) MMAP_DEFAULT(s)
 #endif /* HAVE_MMAP */
@@ -416,15 +401,6 @@ static FORCEINLINE int recursive_try_lock(MLOCK_T *lk) {
 #define TRY_LOCK(lk)          (!pthread_mutex_trylock(lk))
 #define INITIAL_LOCK(lk)      pthread_init_lock(lk)
 #define DESTROY_LOCK(lk)      pthread_mutex_destroy(lk)
-
-#if defined(USE_RECURSIVE_LOCKS) && USE_RECURSIVE_LOCKS != 0 && defined(linux) && !defined(PTHREAD_MUTEX_RECURSIVE)
-/* Cope with old-style linux recursive lock initialization by adding */
-/* skipped internal declaration from pthread.h */
-extern int pthread_mutexattr_setkind_np __P ((pthread_mutexattr_t *__attr,
-                                              int __kind));
-#define PTHREAD_MUTEX_RECURSIVE PTHREAD_MUTEX_RECURSIVE_NP
-#define pthread_mutexattr_settype(x,y) pthread_mutexattr_setkind_np(x,y)
-#endif /* USE_RECURSIVE_LOCKS ... */
 
 static MLOCK_T malloc_global_mutex = PTHREAD_MUTEX_INITIALIZER;
 

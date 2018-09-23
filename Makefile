@@ -16,6 +16,7 @@ else # DEBUG
 CFLAGS+=-O3
 CFLAGS+=-g0
 CFLAGS+=-fomit-frame-pointer
+CFLAGS+=-fno-stack-protector
 CFLAGS+=-DINSECURE=1
 
 ifneq (,$(findstring clang,$(CC)))

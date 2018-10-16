@@ -2370,7 +2370,7 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
 }
 
 #if SWEEP_STATS
-void
+static void
 print_sweep_stats() {
   fprintf(stderr, "Sweeps: %zd.\n", gm->sweepTimes);
   fprintf(stderr, "Swept bytes: %zd.\n", gm->sweptBytes);

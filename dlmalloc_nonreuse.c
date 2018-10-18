@@ -2351,8 +2351,10 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
 #if SWEEP_STATS
 static void
 print_sweep_stats() {
-  fprintf(stderr, "Sweeps: %zd.\n", gm->sweepTimes);
-  fprintf(stderr, "Swept bytes: %zd.\n", gm->sweptBytes);
+  fprintf(stderr, "gmp Sweeps: %zd.\n", gmp->sweepTimes);
+  fprintf(stderr, "gmp Swept bytes: %zd.\n", gmp->sweptBytes);
+  fprintf(stderr, "lmp Sweeps: %zd.\n", lmp->sweepTimes);
+  fprintf(stderr, "lmp Swept bytes: %zd.\n", lmp->sweptBytes);
 }
 #endif // SWEEP_STATS
 
@@ -2417,8 +2419,10 @@ static void* sys_alloc(mstate m, size_t nb) {
 
     if (!is_initialized(m)) { /* first-time initialization */
 #if SWEEP_STATS
-      atexit(print_sweep_stats);
-      atexit(dlmalloc_stats);
+      if(m == gmp) {
+        atexit(print_sweep_stats);
+        atexit(dlmalloc_stats);
+      }
 #endif // SWEEP_STATS
       if (m->least_addr == 0 || tbase < m->least_addr)
         m->least_addr = tbase;
@@ -2913,7 +2917,7 @@ dlmalloc_internal(mstate cm, size_t bytes) {
 void*
 dlmalloc(size_t bytes) {
   mstate cm;
-  if(((gmp->footprint+lmp->footprint)>>17)&1)
+  if(rand()&1)
     cm = lmp;
   else
     cm = gmp;
@@ -3141,7 +3145,7 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
   mstate cm;
-  if(((gmp->footprint+lmp->footprint)>>17)&1)
+  if(rand()&1)
     cm = lmp;
   else
     cm = gmp;
@@ -3408,7 +3412,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 void* dlmemalign(size_t alignment, size_t bytes) {
   void* ret;
   mstate cm;
-  if(((gmp->footprint+lmp->footprint)>>17)&1)
+  if(rand()&1)
     cm = lmp;
   else
     cm = gmp;
@@ -3423,7 +3427,7 @@ void* dlmemalign(size_t alignment, size_t bytes) {
 int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   void* mem = 0;
   mstate cm;
-  if(((gmp->footprint+lmp->footprint)>>17)&1)
+  if(rand()&1)
     cm = lmp;
   else
     cm = gmp;

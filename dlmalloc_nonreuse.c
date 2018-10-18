@@ -190,9 +190,12 @@ typedef struct {
 #endif // !defined(MAP_ANONYMOUS) && !defined(MAP_ANON)
 
 #define MMAP_FLAGS           (MAP_PRIVATE|MAP_ANONYMOUS)
+#define MMAP_FLAGS32         (MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT)
 #define MMAP_DEFAULT(s)       mmap(0, (s), MMAP_PROT, MMAP_FLAGS, -1, 0)
+#define MMAP_DEFAULT32(s)     mmap(0, (s), MMAP_PROT, MMAP_FLAGS32, -1, 0)
 
 #define DIRECT_MMAP_DEFAULT(s) MMAP_DEFAULT(s)
+#define DIRECT_MMAP_DEFAULT32(s) MMAP_DEFAULT32(s)
 #endif /* HAVE_MMAP */
 
 /**
@@ -205,6 +208,7 @@ typedef struct {
         #define CALL_MMAP(s)        MMAP(s)
     #else /* MMAP */
         #define CALL_MMAP(s)        MMAP_DEFAULT(s)
+        #define CALL_MMAP32(s)      MMAP_DEFAULT32(s)
     #endif /* MMAP */
     #ifdef MUNMAP
         #define CALL_MUNMAP(a, s)   MUNMAP((a), (s))
@@ -215,6 +219,7 @@ typedef struct {
         #define CALL_DIRECT_MMAP(s) DIRECT_MMAP(s)
     #else /* DIRECT_MMAP */
         #define CALL_DIRECT_MMAP(s) DIRECT_MMAP_DEFAULT(s)
+        #define CALL_DIRECT_MMAP32(s) DIRECT_MMAP_DEFAULT32(s)
     #endif /* DIRECT_MMAP */
 #else  /* HAVE_MMAP */
     #define USE_MMAP_BIT            (SIZE_T_ZERO)
@@ -585,11 +590,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 
 #define MCHUNK_SIZE         (sizeof(mchunk))
 
-#if FOOTERS
-#define CHUNK_OVERHEAD      (TWO_SIZE_T_SIZES)
-#else /* FOOTERS */
 #define CHUNK_OVERHEAD      (SIZE_T_SIZE)
-#endif /* FOOTERS */
 
 /* MMapped chunks need a second word of overhead ... */
 #define MMAP_CHUNK_OVERHEAD (TWO_SIZE_T_SIZES)
@@ -1026,7 +1027,9 @@ static struct malloc_params mparams;
 
 /* The global malloc_state used for all non-"mspace" calls */
 static struct malloc_state _gm_;
-#define gm                 (&_gm_)
+#define gmp (&_gm_)
+static struct malloc_state _lm_;
+#define lmp (&_lm_)
 #define is_global(M)       ((M) == &_gm_)
 
 #define is_initialized(M)  ((M)->top != 0)
@@ -1370,12 +1373,7 @@ static size_t traverse_and_check(mstate m);
 #define ok_pinuse(p)     (1)
 #endif /* !INSECURE */
 
-#if (FOOTERS && !INSECURE)
-/* Check if (alleged) mstate m has expected magic field */
-#define ok_magic(M)      ((M)->magic == mparams.magic)
-#else  /* (FOOTERS && !INSECURE) */
 #define ok_magic(M)      (1)
-#endif /* (FOOTERS && !INSECURE) */
 
 /* In gcc, use __builtin_expect to minimize impact of checks */
 #if !INSECURE
@@ -1389,8 +1387,6 @@ static size_t traverse_and_check(mstate m);
 #endif /* !INSECURE */
 
 /* macros to set up inuse chunks with or without footers */
-
-#if !FOOTERS
 
 #define mark_inuse_foot(M,p,s)
 
@@ -1409,32 +1405,6 @@ static size_t traverse_and_check(mstate m);
 /* Set size, cinuse and pinuse bit of this chunk */
 #define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
   ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT))
-
-#else /* FOOTERS */
-
-/* Set foot of inuse chunk to be xor of mstate and seed */
-#define mark_inuse_foot(M,p,s)\
-  (((mchunkptr)((char*)(p) + (s)))->prev_foot = ((size_t)(M) ^ mparams.magic))
-
-#define get_mstate_for(p)\
-  ((mstate)(((mchunkptr)((char*)(p) +\
-    (chunksize(p))))->prev_foot ^ mparams.magic))
-
-#define set_inuse(M,p,s)\
-  ((p)->head = (pdirty(p)|((p)->head & PINUSE_BIT)|s|CINUSE_BIT),\
-  (((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT), \
-  mark_inuse_foot(M,p,s))
-
-#define set_inuse_and_pinuse(M,p,s)\
-  ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
-  (((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT),\
- mark_inuse_foot(M,p,s))
-
-#define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
-  ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
-  mark_inuse_foot(M, p, s))
-
-#endif /* !FOOTERS */
 
 /* ---------------------------- setting mparams -------------------------- */
 
@@ -1478,9 +1448,11 @@ static int init_mparams(void) {
     mparams.trim_threshold = DEFAULT_TRIM_THRESHOLD;
     mparams.default_mflags = USE_LOCK_BIT|USE_MMAP_BIT|USE_NONCONTIGUOUS_BIT;
 
-    /* Set up lock for main malloc area */
-    gm->mflags = mparams.default_mflags;
-    (void)INITIAL_LOCK(&gm->mutex);
+    // Set up lock for gm and lm.
+    gmp->mflags = mparams.default_mflags;
+    (void)INITIAL_LOCK(&gmp->mutex);
+    lmp->mflags = mparams.default_mflags;
+    (void)INITIAL_LOCK(&lmp->mutex);
 #if LOCK_AT_FORK
     pthread_atfork(&pre_fork, &post_fork_parent, &post_fork_child);
 #endif
@@ -2207,7 +2179,14 @@ static void* mmap_alloc(mstate m, size_t nb) {
       return 0;
   }
   if (mmsize > nb) {     /* Check for wrap around 0 */
-    char* mm = (char*)(CALL_DIRECT_MMAP(mmsize));
+    char* mm;
+    if(m == gmp)
+      mm = (char*)(CALL_DIRECT_MMAP32(mmsize));
+    else if(m == lmp)
+      mm = (char*)(CALL_DIRECT_MMAP(mmsize));
+    else
+      ABORT;
+
     if (mm != CMFAIL) {
       size_t offset = align_offset(chunk2mem(mm));
       size_t psize = mmsize - offset - MMAP_FOOT_PAD;
@@ -2416,7 +2395,14 @@ static void* sys_alloc(mstate m, size_t nb) {
   */
 
   if (HAVE_MMAP && tbase == CMFAIL) {  /* Try MMAP */
-    char* mp = (char*)(CALL_MMAP(asize));
+    char* mp;
+    if(m == gmp)
+      mp = (char*)(CALL_MMAP32(asize));
+    else if(m == lmp)
+      mp = (char*)(CALL_MMAP(asize));
+    else
+      ABORT;
+
     if (mp != CMFAIL) {
       tbase = mp;
       tsize = asize;
@@ -2442,14 +2428,7 @@ static void* sys_alloc(mstate m, size_t nb) {
       m->magic = mparams.magic;
       m->release_checks = MAX_RELEASE_CHECK_RATE;
       init_bins(m);
-      if (is_global(m))
-        init_top(m, (mchunkptr)tbase, tsize - TOP_FOOT_SIZE);
-      else
-      {
-        /* Offset top by embedded malloc_state */
-        mchunkptr mn = next_chunk(mem2chunk(m));
-        init_top(m, mn, (size_t)((tbase + tsize) - (char*)mn) -TOP_FOOT_SIZE);
-      }
+      init_top(m, (mchunkptr)tbase, tsize - TOP_FOOT_SIZE);
     }
 
     else {
@@ -2784,7 +2763,8 @@ static void* tmalloc_small(mstate m, size_t nb) {
   return 0;
 }
 
-void* dlmalloc(size_t bytes) {
+static void*
+dlmalloc_internal(mstate cm, size_t bytes) {
   /*
      Basic algorithm:
      If a small request (< 256 bytes minus per-chunk overhead):
@@ -2812,7 +2792,7 @@ void* dlmalloc(size_t bytes) {
   ensure_initialization(); /* initialize in sys_alloc if not using locks */
 #endif
 
-  if (!PREACTION(gm)) {
+  if (!PREACTION(gmp)) {
     void* mem;
     size_t nb;
     if (bytes <= MAX_SMALL_REQUEST) {
@@ -2820,22 +2800,22 @@ void* dlmalloc(size_t bytes) {
       binmap_t smallbits;
       nb = (bytes < MIN_REQUEST)? MIN_CHUNK_SIZE : pad_request(bytes);
       idx = small_index(nb);
-      smallbits = gm->smallmap >> idx;
+      smallbits = cm->smallmap >> idx;
 
       if ((smallbits & 0x3U) != 0) { /* Remainderless fit to a smallbin. */
         mchunkptr b, p;
         idx += ~smallbits & 1;       /* Uses next bin if idx empty */
-        b = smallbin_at(gm, idx);
+        b = smallbin_at(cm, idx);
         p = b->fd;
         assert(chunksize(p) == small_index2size(idx));
-        unlink_first_small_chunk(gm, b, p, idx);
-        set_inuse_and_pinuse(gm, p, small_index2size(idx));
+        unlink_first_small_chunk(cm, b, p, idx);
+        set_inuse_and_pinuse(cm, p, small_index2size(idx));
         mem = chunk2mem(p);
-        check_malloced_chunk(gm, mem, nb);
+        check_malloced_chunk(cm, mem, nb);
         goto postaction;
       }
 
-      else if (nb > gm->dvsize) {
+      else if (nb > cm->dvsize) {
         if (smallbits != 0) { /* Use chunk in next nonempty smallbin */
           mchunkptr b, p, r;
           size_t rsize;
@@ -2843,27 +2823,27 @@ void* dlmalloc(size_t bytes) {
           binmap_t leftbits = (smallbits << idx) & left_bits(idx2bit(idx));
           binmap_t leastbit = least_bit(leftbits);
           compute_bit2idx(leastbit, i);
-          b = smallbin_at(gm, i);
+          b = smallbin_at(cm, i);
           p = b->fd;
           assert(chunksize(p) == small_index2size(i));
-          unlink_first_small_chunk(gm, b, p, i);
+          unlink_first_small_chunk(cm, b, p, i);
           rsize = small_index2size(i) - nb;
           /* Fit here cannot be remainderless if 4byte sizes */
           if (SIZE_T_SIZE != 4 && rsize < MIN_CHUNK_SIZE)
-            set_inuse_and_pinuse(gm, p, small_index2size(i));
+            set_inuse_and_pinuse(cm, p, small_index2size(i));
           else {
-            set_size_and_pinuse_of_inuse_chunk(gm, p, nb);
+            set_size_and_pinuse_of_inuse_chunk(cm, p, nb);
             r = chunk_plus_offset(p, nb);
             set_size_and_pinuse_of_free_chunk(r, rsize);
-            replace_dv(gm, r, rsize);
+            replace_dv(cm, r, rsize);
           }
           mem = chunk2mem(p);
-          check_malloced_chunk(gm, mem, nb);
+          check_malloced_chunk(cm, mem, nb);
           goto postaction;
         }
 
-        else if (gm->treemap != 0 && (mem = tmalloc_small(gm, nb)) != 0) {
-          check_malloced_chunk(gm, mem, nb);
+        else if (cm->treemap != 0 && (mem = tmalloc_small(cm, nb)) != 0) {
+          check_malloced_chunk(cm, mem, nb);
           goto postaction;
         }
       }
@@ -2872,45 +2852,45 @@ void* dlmalloc(size_t bytes) {
       nb = MAX_SIZE_T; /* Too big to allocate. Force failure (in sys alloc) */
     else {
       nb = pad_request(bytes);
-      if (gm->treemap != 0 && (mem = tmalloc_large(gm, nb)) != 0) {
-        check_malloced_chunk(gm, mem, nb);
+      if (cm->treemap != 0 && (mem = tmalloc_large(cm, nb)) != 0) {
+        check_malloced_chunk(cm, mem, nb);
         goto postaction;
       }
     }
 
-    if (nb <= gm->dvsize) {
-      size_t rsize = gm->dvsize - nb;
-      mchunkptr p = gm->dv;
+    if (nb <= cm->dvsize) {
+      size_t rsize = cm->dvsize - nb;
+      mchunkptr p = cm->dv;
       if (rsize >= MIN_CHUNK_SIZE) { /* split dv */
-        mchunkptr r = gm->dv = chunk_plus_offset(p, nb);
-        gm->dvsize = rsize;
+        mchunkptr r = cm->dv = chunk_plus_offset(p, nb);
+        cm->dvsize = rsize;
         set_size_and_pinuse_of_free_chunk(r, rsize);
-        set_size_and_pinuse_of_inuse_chunk(gm, p, nb);
+        set_size_and_pinuse_of_inuse_chunk(cm, p, nb);
       }
       else { /* exhaust dv */
-        size_t dvs = gm->dvsize;
-        gm->dvsize = 0;
-        gm->dv = 0;
-        set_inuse_and_pinuse(gm, p, dvs);
+        size_t dvs = cm->dvsize;
+        cm->dvsize = 0;
+        cm->dv = 0;
+        set_inuse_and_pinuse(cm, p, dvs);
       }
       mem = chunk2mem(p);
-      check_malloced_chunk(gm, mem, nb);
+      check_malloced_chunk(cm, mem, nb);
       goto postaction;
     }
 
-    else if (nb < gm->topsize) { /* Split top */
-      size_t rsize = gm->topsize -= nb;
-      mchunkptr p = gm->top;
-      mchunkptr r = gm->top = chunk_plus_offset(p, nb);
+    else if (nb < cm->topsize) { /* Split top */
+      size_t rsize = cm->topsize -= nb;
+      mchunkptr p = cm->top;
+      mchunkptr r = cm->top = chunk_plus_offset(p, nb);
       r->head = rsize | PINUSE_BIT;
-      set_size_and_pinuse_of_inuse_chunk(gm, p, nb);
+      set_size_and_pinuse_of_inuse_chunk(cm, p, nb);
       mem = chunk2mem(p);
-      check_top_chunk(gm, gm->top);
-      check_malloced_chunk(gm, mem, nb);
+      check_top_chunk(cm, cm->top);
+      check_malloced_chunk(cm, mem, nb);
       goto postaction;
     }
 
-    mem = sys_alloc(gm, nb);
+    mem = sys_alloc(cm, nb);
 
   postaction:
     ;
@@ -2922,7 +2902,7 @@ void* dlmalloc(size_t bytes) {
       clear_cdirty(ret);
       clear_pdirty(theNext);
     }
-    POSTACTION(gm);
+    POSTACTION(gmp);
     UTRACE(0, bytes, mem);
     return mem;
   }
@@ -2930,10 +2910,20 @@ void* dlmalloc(size_t bytes) {
   return 0;
 }
 
+void*
+dlmalloc(size_t bytes) {
+  mstate cm;
+  if(((gmp->footprint+lmp->footprint)>>17)&1)
+    cm = lmp;
+  else
+    cm = gmp;
+  return dlmalloc_internal(cm, bytes);
+}
+
 /* ---------------------------- free --------------------------- */
 
 static void
-dlfree_internal(void* mem) {
+dlfree_internal(mstate cm, void* mem) {
   /*
      Consolidate freed chunks with preceeding or succeeding bordering
      free chunks, if they exist, and then place in a bin.  Intermixed
@@ -2942,28 +2932,18 @@ dlfree_internal(void* mem) {
 
   if (mem != 0) {
     mchunkptr p  = mem2chunk(mem);
-#if FOOTERS
-    mstate fm = get_mstate_for(p);
-    if (!ok_magic(fm)) {
-      USAGE_ERROR_ACTION(fm, p);
-      return;
-    }
-#else /* FOOTERS */
-#define fm gm
-#endif /* FOOTERS */
-
 #if FREEBUF_MODE
     if (1) {
 #else // FREEBUF_MODE
     UTRACE(mem, 0, 0);
-    if(!PREACTION(fm)) {
+    if(!PREACTION(gmp)) {
 #if SWEEP_STATS
-      fm->sweepTimes++;
-      fm->sweptBytes += fm->footprint;
+      gmp->sweepTimes++;
+      gmp->sweptBytes += gmp->footprint + lmp->footprint;
 #endif // SWEEP_STATS
 #endif // FREEBUF_MODE
-      check_inuse_chunk(fm, p);
-      if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
+      check_inuse_chunk(cm, p);
+      if (RTCHECK(ok_address(cm, p) && ok_inuse(p))) {
         size_t psize = chunksize(p);
         mchunkptr next = chunk_plus_offset(p, psize);
         if (!pinuse(p)) {
@@ -2971,20 +2951,20 @@ dlfree_internal(void* mem) {
           if (is_mmapped(p)) {
             psize += prevsize + MMAP_FOOT_PAD;
             if (CALL_MUNMAP((char*)p - prevsize, psize) == 0)
-              fm->footprint -= psize;
+              cm->footprint -= psize;
             goto postaction;
           }
           else {
             mchunkptr prev = chunk_minus_offset(p, prevsize);
-            check_freebuf_corrupt(fm, prev);
+            check_freebuf_corrupt(cm, prev);
             psize += prevsize;
             p = prev;
-            if (RTCHECK(ok_address(fm, prev))) {
-              if (p != fm->dv) {
-                unlink_chunk(fm, p, prevsize);
+            if (RTCHECK(ok_address(cm, prev))) {
+              if (p != cm->dv) {
+                unlink_chunk(cm, p, prevsize);
               }
               else if ((next->head & INUSE_BITS) == INUSE_BITS) {
-                fm->dvsize = psize;
+                cm->dvsize = psize;
                 set_free_with_pinuse(p, psize, next);
                 goto postaction;
               }
@@ -2997,32 +2977,32 @@ dlfree_internal(void* mem) {
         if (RTCHECK(ok_next(p, next) && ok_pinuse(next))) {
           // Consolidate forward only with a non-dirty chunk.
           if(!cinuse(next)) {
-            check_freebuf_corrupt(fm, next);
-            if (next == fm->top) {
-              size_t tsize = fm->topsize += psize;
-              fm->top = p;
+            check_freebuf_corrupt(cm, next);
+            if (next == cm->top) {
+              size_t tsize = cm->topsize += psize;
+              cm->top = p;
               p->head = dirtybits(p) | tsize | PINUSE_BIT;
-              if (p == fm->dv) {
-                fm->dv = 0;
-                fm->dvsize = 0;
+              if (p == cm->dv) {
+                cm->dv = 0;
+                cm->dvsize = 0;
               }
-              if (should_trim(fm, tsize))
-                sys_trim(fm, 0);
+              if (should_trim(cm, tsize))
+                sys_trim(cm, 0);
               goto postaction;
             }
-            else if (next == fm->dv) {
-              size_t dsize = fm->dvsize += psize;
-              fm->dv = p;
+            else if (next == cm->dv) {
+              size_t dsize = cm->dvsize += psize;
+              cm->dv = p;
               set_size_and_pinuse_of_free_chunk(p, dsize);
               goto postaction;
             }
             else {
               size_t nsize = chunksize(next);
               psize += nsize;
-              unlink_chunk(fm, next, nsize);
+              unlink_chunk(cm, next, nsize);
               set_size_and_pinuse_of_free_chunk(p, psize);
-              if (p == fm->dv) {
-                fm->dvsize = psize;
+              if (p == cm->dv) {
+                cm->dvsize = psize;
                 goto postaction;
               }
             }
@@ -3031,52 +3011,40 @@ dlfree_internal(void* mem) {
             set_free_with_pinuse(p, psize, next);
 
           if (is_small(psize)) {
-            insert_small_chunk(fm, p, psize);
-            check_free_chunk(fm, p);
+            insert_small_chunk(cm, p, psize);
+            check_free_chunk(cm, p);
           }
           else {
             tchunkptr tp = (tchunkptr)p;
-            insert_large_chunk(fm, tp, psize);
-            check_free_chunk(fm, p);
-            if (--fm->release_checks == 0)
-              release_unused_segments(fm);
+            insert_large_chunk(cm, tp, psize);
+            check_free_chunk(cm, p);
+            if (--cm->release_checks == 0)
+              release_unused_segments(cm);
           }
           goto postaction;
         }
       }
     erroraction:
-      USAGE_ERROR_ACTION(fm, p);
+      USAGE_ERROR_ACTION(cm, p);
     postaction:
 #if !FREEBUF_MODE
-      POSTACTION(fm);
+      POSTACTION(gmp);
 #endif // !FREEBUF_MODE
       ;
     }
   }
-#if !FOOTERS
-#undef fm
-#endif /* FOOTERS */
 }
 
-void
-dlfree(void* mem) {
+static void
+dlfree_wrap(mstate cm, void* mem) {
 #if FREEBUF_MODE
   if(mem != 0) {
     mchunkptr p  = mem2chunk(mem);
-#if FOOTERS
-    mstate fm = get_mstate_for(p);
-    if(!ok_magic(fm)) {
-      USAGE_ERROR_ACTION(fm, p);
-      return;
-    }
-#else // FOOTERS
-#define fm gm
-#endif // FOOTERS
     UTRACE(mem, 0, 0);
-    if(!PREACTION(fm)) {
-      check_inuse_chunk(fm, p);
+    if(!PREACTION(gmp)) {
+      check_inuse_chunk(cm, p);
       if(!is_mmapped(p)) {
-        if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
+        if(RTCHECK(ok_address(cm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);
           mchunkptr next = chunk_plus_offset(p, psize);
           if(pdirty(p)) {
@@ -3084,8 +3052,8 @@ dlfree(void* mem) {
             mchunkptr prev = chunk_minus_offset(p, prevsize);
             psize += prevsize;
             p = prev;
-            if(RTCHECK(ok_address(fm, prev))) {
-              unlink_freebuf_chunk(fm, p);
+            if(RTCHECK(ok_address(cm, prev))) {
+              unlink_freebuf_chunk(gmp, p);
             }
             else
               goto erroraction;
@@ -3096,7 +3064,7 @@ dlfree(void* mem) {
             if(cdirty(next)) {
               size_t nsize = chunksize(next);
               psize += nsize;
-              unlink_freebuf_chunk(fm, next);
+              unlink_freebuf_chunk(gmp, next);
               set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
             }
             else {
@@ -3104,23 +3072,23 @@ dlfree(void* mem) {
               set_pdirty(next);
             }
 
-            insert_freebuf_chunk(fm, p);
+            insert_freebuf_chunk(gmp, p);
             goto postaction;
           }
         }
       } else {
-        insert_freebuf_chunk(fm, p);
+        insert_freebuf_chunk(gmp, p);
         goto postaction;
       }
     erroraction:
-      USAGE_ERROR_ACTION(fm, p);
+      USAGE_ERROR_ACTION(cm, p);
     postaction:
-      if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT)) {
-        mchunkptr freebin = &fm->freebufbin;
+      if(gmp->freebufbytes > (size_t)((gmp->footprint+lmp->footprint)*DEFAULT_FREEBUF_PERCENT)) {
+        mchunkptr freebin = &gmp->freebufbin;
         for(size_t i=0; i<DEFAULT_SWEEP_SIZE; i++) {
           mchunkptr ret = freebin->fd;
           if(ret == freebin) break;
-          unlink_first_freebuf_chunk(fm, freebin, ret);
+          unlink_first_freebuf_chunk(gmp, freebin, ret);
           size_t theSize = chunksize(ret);
           mchunkptr theNext = chunk_plus_offset(ret, theSize);
           if(!is_mmapped(ret)) {
@@ -3131,23 +3099,36 @@ dlfree(void* mem) {
           }
           // Have to do free_internal after unlinking, otherwise the circular
           // list of freebufbin will get corrupted.
-          dlfree_internal(chunk2mem(ret));
+          mstate freem;
+          if((size_t)ret > 0xffffffffUL)
+            freem = lmp;
+          else
+            freem = gmp;
+          dlfree_internal(freem, chunk2mem(ret));
         }
 #if SWEEP_STATS
-        fm->sweepTimes++;
-        fm->sweptBytes += fm->footprint;
+        gmp->sweepTimes++;
+        gmp->sweptBytes += gmp->footprint+lmp->footprint;
 #endif // SWEEP_STATS
       }
-      POSTACTION(fm);
+      POSTACTION(gmp);
     }
   }
-#if !FOOTERS
-#undef fm
-#endif /* FOOTERS */
 
 #else // FREEBUF_MODE
-  dlfree_internal(mem);
+  dlfree_internal(cm, mem);
 #endif
+}
+
+void
+dlfree(void* mem) {
+  mstate cm;
+  if((size_t)mem > 0xffffffffUL)
+    cm = lmp;
+  else
+    cm = gmp;
+
+  dlfree_wrap(cm, mem);
 }
 
 void* dlcalloc(size_t n_elements, size_t elem_size) {
@@ -3159,7 +3140,12 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
         (req / n_elements != elem_size))
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
-  mem = dlmalloc(req);
+  mstate cm;
+  if(((gmp->footprint+lmp->footprint)>>17)&1)
+    cm = lmp;
+  else
+    cm = gmp;
+  mem = dlmalloc_internal(cm, req);
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
   return mem;
@@ -3268,10 +3254,10 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
   else {
     size_t nb = request2size(bytes);
     size_t req = nb + alignment + MIN_CHUNK_SIZE - CHUNK_OVERHEAD;
-    mem = internal_malloc(m, req);
+    mem = dlmalloc_internal(m, req);
     if (mem != 0) {
       mchunkptr p = mem2chunk(mem);
-      if (PREACTION(m))
+      if (PREACTION(gmp))
         return 0;
       if ((((size_t)(mem)) & (alignment - 1)) != 0) { /* misaligned */
         /*
@@ -3319,185 +3305,10 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
       assert (chunksize(p) >= nb);
       assert(((size_t)mem & (alignment - 1)) == 0);
       check_inuse_chunk(m, p);
-      POSTACTION(m);
+      POSTACTION(gmp);
     }
   }
   return mem;
-}
-
-/*
-  Common support for independent_X routines, handling
-    all of the combinations that can result.
-  The opts arg has:
-    bit 0 set if all elements are same size (using sizes[0])
-    bit 1 set if elements should be zeroed
-*/
-static void** ialloc(mstate m,
-                     size_t n_elements,
-                     size_t* sizes,
-                     int opts,
-                     void* chunks[]) {
-
-  size_t    element_size;   /* chunksize of each element, if all same */
-  size_t    contents_size;  /* total size of elements */
-  size_t    array_size;     /* request size of pointer array */
-  void*     mem;            /* malloced aggregate space */
-  mchunkptr p;              /* corresponding chunk */
-  size_t    remainder_size; /* remaining bytes while splitting */
-  void**    marray;         /* either "chunks" or malloced ptr array */
-  mchunkptr array_chunk;    /* chunk for malloced ptr array */
-  flag_t    was_enabled;    /* to disable mmap */
-  size_t    size;
-  size_t    i;
-
-  ensure_initialization();
-  /* compute array length, if needed */
-  if (chunks != 0) {
-    if (n_elements == 0)
-      return chunks; /* nothing to do */
-    marray = chunks;
-    array_size = 0;
-  }
-  else {
-    /* if empty req, must still return chunk representing empty array */
-    if (n_elements == 0)
-      return (void**)internal_malloc(m, 0);
-    marray = 0;
-    array_size = request2size(n_elements * (sizeof(void*)));
-  }
-
-  /* compute total element size */
-  if (opts & 0x1) { /* all-same-size */
-    element_size = request2size(*sizes);
-    contents_size = n_elements * element_size;
-  }
-  else { /* add up all the sizes */
-    element_size = 0;
-    contents_size = 0;
-    for (i = 0; i != n_elements; ++i)
-      contents_size += request2size(sizes[i]);
-  }
-
-  size = contents_size + array_size;
-
-  /*
-     Allocate the aggregate chunk.  First disable direct-mmapping so
-     malloc won't use it, since we would not be able to later
-     free/realloc space internal to a segregated mmap region.
-  */
-  was_enabled = use_mmap(m);
-  disable_mmap(m);
-  mem = internal_malloc(m, size - CHUNK_OVERHEAD);
-  if (was_enabled)
-    enable_mmap(m);
-  if (mem == 0)
-    return 0;
-
-  if (PREACTION(m)) return 0;
-  p = mem2chunk(mem);
-  remainder_size = chunksize(p);
-
-  assert(!is_mmapped(p));
-
-  if (opts & 0x2) {       /* optionally clear the elements */
-    memset((size_t*)mem, 0, remainder_size - SIZE_T_SIZE - array_size);
-  }
-
-  /* If not provided, allocate the pointer array as final part of chunk */
-  if (marray == 0) {
-    size_t  array_chunk_size;
-    array_chunk = chunk_plus_offset(p, contents_size);
-    array_chunk_size = remainder_size - contents_size;
-    marray = (void**) (chunk2mem(array_chunk));
-    set_size_and_pinuse_of_inuse_chunk(m, array_chunk, array_chunk_size);
-    remainder_size = contents_size;
-  }
-
-  /* split out elements */
-  for (i = 0; ; ++i) {
-    marray[i] = chunk2mem(p);
-    if (i != n_elements-1) {
-      if (element_size != 0)
-        size = element_size;
-      else
-        size = request2size(sizes[i]);
-      remainder_size -= size;
-      set_size_and_pinuse_of_inuse_chunk(m, p, size);
-      p = chunk_plus_offset(p, size);
-    }
-    else { /* the final element absorbs any overallocation slop */
-      set_size_and_pinuse_of_inuse_chunk(m, p, remainder_size);
-      break;
-    }
-  }
-
-#if DEBUG
-  if (marray != chunks) {
-    /* final element must have exactly exhausted chunk */
-    if (element_size != 0) {
-      assert(remainder_size == element_size);
-    }
-    else {
-      assert(remainder_size == request2size(sizes[i]));
-    }
-    check_inuse_chunk(m, mem2chunk(marray));
-  }
-  for (i = 0; i != n_elements; ++i)
-    check_inuse_chunk(m, mem2chunk(marray[i]));
-
-#endif /* DEBUG */
-
-  POSTACTION(m);
-  return marray;
-}
-
-/* Try to free all pointers in the given array.
-   Note: this could be made faster, by delaying consolidation,
-   at the price of disabling some user integrity checks, We
-   still optimize some consolidations by combining adjacent
-   chunks before freeing, which will occur often if allocated
-   with ialloc or the array is sorted.
-*/
-static size_t internal_bulk_free(mstate m, void* array[], size_t nelem) {
-  size_t unfreed = 0;
-  if (!PREACTION(m)) {
-    void** a;
-    void** fence = &(array[nelem]);
-    for (a = array; a != fence; ++a) {
-      void* mem = *a;
-      if (mem != 0) {
-        mchunkptr p = mem2chunk(mem);
-        size_t psize = chunksize(p);
-#if FOOTERS
-        if (get_mstate_for(p) != m) {
-          ++unfreed;
-          continue;
-        }
-#endif
-        check_inuse_chunk(m, p);
-        *a = 0;
-        if (RTCHECK(ok_address(m, p) && ok_inuse(p))) {
-          void ** b = a + 1; /* try to merge with next chunk */
-          mchunkptr next = next_chunk(p);
-          if (b != fence && *b == chunk2mem(next)) {
-            size_t newsize = chunksize(next) + psize;
-            set_inuse(m, p, newsize);
-            *b = chunk2mem(p);
-          }
-          else
-            dispose_chunk(m, p, psize);
-        }
-        else {
-          CORRUPTION_ERROR_ACTION(m);
-          break;
-        }
-      }
-    }
-    if (should_trim(m, m->topsize))
-      sys_trim(m, 0);
-    POSTACTION(m);
-  }
-  return unfreed;
 }
 
 /* Traversal */
@@ -3560,15 +3371,11 @@ void* dlrealloc(void* oldmem, size_t bytes) {
   else {
     size_t nb = request2size(bytes);
     mchunkptr oldp = mem2chunk(oldmem);
-#if ! FOOTERS
-    mstate m = gm;
-#else /* FOOTERS */
-    mstate m = get_mstate_for(oldp);
-    if (!ok_magic(m)) {
-      USAGE_ERROR_ACTION(m, oldmem);
-      return 0;
-    }
-#endif /* FOOTERS */
+    mstate m;
+    if((size_t)oldmem > 0xffffffffUL)
+      m = lmp;
+    else
+      m = gmp;
 #ifdef MALLOC_UTRACE
     malloc_utrace_suspend++;
 #endif
@@ -3598,51 +3405,30 @@ void* dlrealloc(void* oldmem, size_t bytes) {
   return mem;
 }
 
-void* dlrealloc_in_place(void* oldmem, size_t bytes) {
-  void* mem = 0;
-  if (oldmem != 0) {
-    if (bytes >= MAX_REQUEST) {
-      MALLOC_FAILURE_ACTION;
-    }
-    else {
-      size_t nb = request2size(bytes);
-      mchunkptr oldp = mem2chunk(oldmem);
-#if ! FOOTERS
-      mstate m = gm;
-#else /* FOOTERS */
-      mstate m = get_mstate_for(oldp);
-      if (!ok_magic(m)) {
-        USAGE_ERROR_ACTION(m, oldmem);
-        return 0;
-      }
-#endif /* FOOTERS */
-      if (!PREACTION(m)) {
-        mchunkptr newp = try_realloc_chunk(m, oldp, nb);
-        POSTACTION(m);
-        if (newp == oldp) {
-          check_inuse_chunk(m, newp);
-          mem = oldmem;
-        }
-      }
-    }
-  }
-  return mem;
-}
-
 void* dlmemalign(size_t alignment, size_t bytes) {
   void* ret;
+  mstate cm;
+  if(((gmp->footprint+lmp->footprint)>>17)&1)
+    cm = lmp;
+  else
+    cm = gmp;
   if (alignment <= MALLOC_ALIGNMENT) {
-    ret = dlmalloc(bytes);
+    ret = dlmalloc_internal(cm, bytes);
   } else
-    ret = internal_memalign(gm, alignment, bytes);
+    ret = internal_memalign(cm, alignment, bytes);
   UTRACE(0, bytes, ret);
   return ret;
 }
 
 int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   void* mem = 0;
+  mstate cm;
+  if(((gmp->footprint+lmp->footprint)>>17)&1)
+    cm = lmp;
+  else
+    cm = gmp;
   if (alignment == MALLOC_ALIGNMENT)
-    mem = dlmalloc(bytes);
+    mem = dlmalloc_internal(cm, bytes);
   else {
     size_t d = alignment / sizeof(void*);
     size_t r = alignment % sizeof(void*);
@@ -3651,7 +3437,7 @@ int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
     else if (bytes <= MAX_REQUEST - alignment) {
       if (alignment <  MIN_CHUNK_SIZE)
         alignment = MIN_CHUNK_SIZE;
-      mem = internal_memalign(gm, alignment, bytes);
+      mem = internal_memalign(cm, alignment, bytes);
     }
   }
   if (mem == 0)
@@ -3660,35 +3446,6 @@ int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
     *pp = mem;
     return 0;
   }
-}
-
-void* dlvalloc(size_t bytes) {
-  size_t pagesz;
-  ensure_initialization();
-  pagesz = mparams.page_size;
-  return dlmemalign(pagesz, bytes);
-}
-
-void* dlpvalloc(size_t bytes) {
-  size_t pagesz;
-  ensure_initialization();
-  pagesz = mparams.page_size;
-  return dlmemalign(pagesz, (bytes + pagesz - SIZE_T_ONE) & ~(pagesz - SIZE_T_ONE));
-}
-
-void** dlindependent_calloc(size_t n_elements, size_t elem_size,
-                            void* chunks[]) {
-  size_t sz = elem_size; /* serves as 1-element array */
-  return ialloc(gm, n_elements, &sz, 3, chunks);
-}
-
-void** dlindependent_comalloc(size_t n_elements, size_t sizes[],
-                              void* chunks[]) {
-  return ialloc(gm, n_elements, sizes, 0, chunks);
-}
-
-size_t dlbulk_free(void* array[], size_t nelem) {
-  return internal_bulk_free(gm, array, nelem);
 }
 
 #if MALLOC_INSPECT_ALL
@@ -3705,49 +3462,24 @@ void dlmalloc_inspect_all(void(*handler)(void *start,
 }
 #endif /* MALLOC_INSPECT_ALL */
 
-int dlmalloc_trim(size_t pad) {
-  int result = 0;
-  ensure_initialization();
-  if (!PREACTION(gm)) {
-    result = sys_trim(gm, pad);
-    POSTACTION(gm);
-  }
-  return result;
-}
-
 size_t dlmalloc_footprint(void) {
-  return gm->footprint;
+  return gmp->footprint+lmp->footprint;
 }
 
 size_t dlmalloc_max_footprint(void) {
-  return gm->max_footprint;
-}
-
-size_t dlmalloc_footprint_limit(void) {
-  size_t maf = gm->footprint_limit;
-  return maf == 0 ? MAX_SIZE_T : maf;
-}
-
-size_t dlmalloc_set_footprint_limit(size_t bytes) {
-  size_t result;  /* invert sense of 0 */
-  if (bytes == 0)
-    result = granularity_align(1); /* Use minimal size */
-  if (bytes == MAX_SIZE_T)
-    result = 0;                    /* disable */
-  else
-    result = granularity_align(bytes);
-  return gm->footprint_limit = result;
+  return gmp->max_footprint+lmp->footprint;
 }
 
 #if !NO_MALLINFO
 struct mallinfo dlmallinfo(void) {
-  return internal_mallinfo(gm);
+  return internal_mallinfo(gmp);
 }
 #endif /* NO_MALLINFO */
 
 #if !NO_MALLOC_STATS
 void dlmalloc_stats() {
-  internal_malloc_stats(gm);
+  internal_malloc_stats(gmp);
+  internal_malloc_stats(lmp);
 }
 #endif /* NO_MALLOC_STATS */
 

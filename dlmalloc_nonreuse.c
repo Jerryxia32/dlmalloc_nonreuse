@@ -2768,10 +2768,13 @@ static void* tmalloc_small(mstate m, size_t nb) {
 }
 
 static int
-is_shortlived(void* callsite) {
-  if(callsite == (void*)0x803a491ca || callsite == (void*)0x803a48e3e)
-    return 1;
-  return 0;
+is_longlived(void* callsite) {
+  static int init = 0;
+  if(callsite == (void*)0x803a491ca || callsite == (void*)0x803a48e3e || init == 0) {
+    init = 1;
+    return 0;
+  }
+  return 1;
 }
 
 static void*
@@ -2923,7 +2926,7 @@ dlmalloc_internal(mstate cm, size_t bytes) {
 void*
 dlmalloc(size_t bytes) {
   mstate cm;
-  if(is_shortlived(__builtin_return_address(0)))
+  if(is_longlived(__builtin_return_address(0)))
     cm = lmp;
   else
     cm = gmp;
@@ -3153,7 +3156,7 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
   mstate cm;
-  if(is_shortlived(__builtin_return_address(0)))
+  if(is_longlived(__builtin_return_address(0)))
     cm = lmp;
   else
     cm = gmp;
@@ -3421,7 +3424,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   void* mem = 0;
   mstate cm;
-  if(is_shortlived(__builtin_return_address(0)))
+  if(is_longlived(__builtin_return_address(0)))
     cm = lmp;
   else
     cm = gmp;

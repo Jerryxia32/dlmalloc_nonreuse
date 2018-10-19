@@ -2767,6 +2767,13 @@ static void* tmalloc_small(mstate m, size_t nb) {
   return 0;
 }
 
+static int
+is_shortlived(void* callsite) {
+  if(callsite == (void*)0x803a491ca || callsite == (void*)0x803a48e3e)
+    return 1;
+  return 0;
+}
+
 static void*
 dlmalloc_internal(mstate cm, size_t bytes) {
   /*
@@ -2907,7 +2914,6 @@ dlmalloc_internal(mstate cm, size_t bytes) {
       clear_pdirty(theNext);
     }
     POSTACTION(gmp);
-    UTRACE(0, bytes, mem);
     return mem;
   }
 
@@ -2917,11 +2923,14 @@ dlmalloc_internal(mstate cm, size_t bytes) {
 void*
 dlmalloc(size_t bytes) {
   mstate cm;
-  if(rand()&1)
+  if(is_shortlived(__builtin_return_address(0)))
     cm = lmp;
   else
     cm = gmp;
-  return dlmalloc_internal(cm, bytes);
+
+  void* ret = dlmalloc_internal(cm, bytes);
+  UTRACE(0, bytes, ret);
+  return ret;
 }
 
 /* ---------------------------- free --------------------------- */
@@ -2939,7 +2948,6 @@ dlfree_internal(mstate cm, void* mem) {
 #if FREEBUF_MODE
     if (1) {
 #else // FREEBUF_MODE
-    UTRACE(mem, 0, 0);
     if(!PREACTION(gmp)) {
 #if SWEEP_STATS
       gmp->sweepTimes++;
@@ -3044,7 +3052,6 @@ dlfree_wrap(mstate cm, void* mem) {
 #if FREEBUF_MODE
   if(mem != 0) {
     mchunkptr p  = mem2chunk(mem);
-    UTRACE(mem, 0, 0);
     if(!PREACTION(gmp)) {
       check_inuse_chunk(cm, p);
       if(!is_mmapped(p)) {
@@ -3133,6 +3140,7 @@ dlfree(void* mem) {
     cm = gmp;
 
   dlfree_wrap(cm, mem);
+  UTRACE(mem, 0, 0);
 }
 
 void* dlcalloc(size_t n_elements, size_t elem_size) {
@@ -3145,11 +3153,12 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
   mstate cm;
-  if(rand()&1)
+  if(is_shortlived(__builtin_return_address(0)))
     cm = lmp;
   else
     cm = gmp;
   mem = dlmalloc_internal(cm, req);
+  UTRACE(0, req, mem);
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
   return mem;
@@ -3393,11 +3402,11 @@ void* dlrealloc(void* oldmem, size_t bytes) {
           clear_pdirty(next_chunk(newp));
       }
       else {
-        mem = internal_malloc(m, bytes);
+        mem = dlmalloc_internal(m, bytes);
         if (mem != 0) {
           size_t oc = chunksize(oldp) - overhead_for(oldp);
           memcpy(mem, oldmem, (oc < bytes)? oc : bytes);
-          internal_free(m, oldmem);
+          dlfree_internal(m, oldmem);
         }
       }
     }
@@ -3409,25 +3418,10 @@ void* dlrealloc(void* oldmem, size_t bytes) {
   return mem;
 }
 
-void* dlmemalign(size_t alignment, size_t bytes) {
-  void* ret;
-  mstate cm;
-  if(rand()&1)
-    cm = lmp;
-  else
-    cm = gmp;
-  if (alignment <= MALLOC_ALIGNMENT) {
-    ret = dlmalloc_internal(cm, bytes);
-  } else
-    ret = internal_memalign(cm, alignment, bytes);
-  UTRACE(0, bytes, ret);
-  return ret;
-}
-
 int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   void* mem = 0;
   mstate cm;
-  if(rand()&1)
+  if(is_shortlived(__builtin_return_address(0)))
     cm = lmp;
   else
     cm = gmp;
@@ -3448,6 +3442,7 @@ int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
     return ENOMEM;
   else {
     *pp = mem;
+    UTRACE(0, bytes, mem);
     return 0;
   }
 }

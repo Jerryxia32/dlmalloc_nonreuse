@@ -647,7 +647,6 @@ extern "C" {
 #define dlcalloc               calloc
 #define dlfree                 free
 #define dlmalloc               malloc
-#define dlmemalign             memalign
 #define dlposix_memalign       posix_memalign
 #define dlrealloc              realloc
 #define dlmallinfo             mallinfo
@@ -715,20 +714,6 @@ DLMALLOC_EXPORT void* dlcalloc(size_t, size_t);
   to be used as an argument to realloc is not supported.
 */
 DLMALLOC_EXPORT void* dlrealloc(void*, size_t);
-
-/*
-  memalign(size_t alignment, size_t n);
-  Returns a pointer to a newly allocated chunk of n bytes, aligned
-  in accord with the alignment argument.
-
-  The alignment argument should be a power of two. If the argument is
-  not a power of two, the nearest greater power is used.
-  8-byte alignment is guaranteed by normal malloc calls, so don't
-  bother calling memalign with an argument of 8 or less.
-
-  Overreliance on memalign is a sure way to fragment space.
-*/
-DLMALLOC_EXPORT void* dlmemalign(size_t, size_t);
 
 /*
   int posix_memalign(void** pp, size_t alignment, size_t n);

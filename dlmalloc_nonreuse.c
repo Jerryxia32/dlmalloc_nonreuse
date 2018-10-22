@@ -113,28 +113,6 @@
 #  endif
 #endif
 
-#ifdef MALLOC_UTRACE
-#include<sys/param.h>
-#include<sys/uio.h>
-#include<sys/ktrace.h>
-static int malloc_utrace = 1;
-static int malloc_utrace_suspend = 0;
-
-typedef struct {
-  void *p;
-  size_t s;
-  void *r;
-} malloc_utrace_t;
-
-#define	UTRACE(a, b, c)\
-  if(malloc_utrace && malloc_utrace_suspend == 0) {\
-    malloc_utrace_t ut = {a, b, c};\
-    utrace(&ut, sizeof(ut));\
-  }
-#else
-#define UTRACE(a, b, c)
-#endif
-
 /* ------------------- size_t and alignment properties -------------------- */
 
 /* The byte and bit size of a size_t */
@@ -434,6 +412,39 @@ static int pthread_init_lock (MLOCK_T *lk) {
 #endif
 
 #endif /* USE_LOCKS */
+
+#ifdef MALLOC_UTRACE
+#include<sys/param.h>
+#include<sys/uio.h>
+#include<sys/ktrace.h>
+static int malloc_utrace = 1;
+static MLOCK_T malloc_utrace_lock = ATOMIC_FLAG_INIT;
+
+typedef struct {
+  void *p;
+  size_t s;
+  void *r;
+} malloc_utrace_t;
+
+#define	UTRACE(a, b, c)\
+  if(malloc_utrace) {\
+    malloc_utrace_t ut = {a, b, c};\
+    utrace(&ut, sizeof(ut));\
+  }
+
+#define UTRACE_ACQUIRE_LOCK() {\
+  ACQUIRE_LOCK(&malloc_utrace_lock);\
+}
+
+#define UTRACE_RELEASE_LOCK() {\
+  RELEASE_LOCK(&malloc_utrace_lock);\
+}
+
+#else
+#define UTRACE(a, b, c)
+#define UTRACE_ACQUIRE_LOCK()
+#define UTRACE_RELEASE_LOCK()
+#endif // MALLOC_UTRACE
 
 /* -----------------------  Chunk representations ------------------------ */
 
@@ -2931,8 +2942,10 @@ dlmalloc(size_t bytes) {
   else
     cm = gmp;
 
+  UTRACE_ACQUIRE_LOCK();
   void* ret = dlmalloc_internal(cm, bytes);
   UTRACE(0, bytes, ret);
+  UTRACE_RELEASE_LOCK();
   return ret;
 }
 
@@ -3142,8 +3155,10 @@ dlfree(void* mem) {
   else
     cm = gmp;
 
+  UTRACE_ACQUIRE_LOCK();
   dlfree_wrap(cm, mem);
   UTRACE(mem, 0, 0);
+  UTRACE_RELEASE_LOCK();
 }
 
 void* dlcalloc(size_t n_elements, size_t elem_size) {
@@ -3160,8 +3175,10 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
     cm = lmp;
   else
     cm = gmp;
+  UTRACE_ACQUIRE_LOCK();
   mem = dlmalloc_internal(cm, req);
   UTRACE(0, req, mem);
+  UTRACE_RELEASE_LOCK();
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
   return mem;
@@ -3392,9 +3409,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
       m = lmp;
     else
       m = gmp;
-#ifdef MALLOC_UTRACE
-    malloc_utrace_suspend++;
-#endif
+    UTRACE_ACQUIRE_LOCK();
     if (!PREACTION(m)) {
       mchunkptr newp = try_realloc_chunk(m, oldp, nb);
       POSTACTION(m);
@@ -3413,10 +3428,8 @@ void* dlrealloc(void* oldmem, size_t bytes) {
         }
       }
     }
-#ifdef MALLOC_UTRACE
-    malloc_utrace_suspend--;
-#endif
     UTRACE(oldmem, bytes, mem);
+    UTRACE_RELEASE_LOCK();
   }
   return mem;
 }
@@ -3428,24 +3441,30 @@ int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
     cm = lmp;
   else
     cm = gmp;
+  UTRACE_ACQUIRE_LOCK();
   if (alignment == MALLOC_ALIGNMENT)
     mem = dlmalloc_internal(cm, bytes);
   else {
     size_t d = alignment / sizeof(void*);
     size_t r = alignment % sizeof(void*);
-    if (r != 0 || d == 0 || (d & (d-SIZE_T_ONE)) != 0)
+    if (r != 0 || d == 0 || (d & (d-SIZE_T_ONE)) != 0) {
+      UTRACE_RELEASE_LOCK();
       return EINVAL;
+    }
     else if (bytes <= MAX_REQUEST - alignment) {
       if (alignment <  MIN_CHUNK_SIZE)
         alignment = MIN_CHUNK_SIZE;
       mem = internal_memalign(cm, alignment, bytes);
     }
   }
-  if (mem == 0)
+  if (mem == 0) {
+    UTRACE_RELEASE_LOCK();
     return ENOMEM;
+  }
   else {
     *pp = mem;
     UTRACE(0, bytes, mem);
+    UTRACE_RELEASE_LOCK();
     return 0;
   }
 }

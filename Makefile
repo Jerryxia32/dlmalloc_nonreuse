@@ -39,7 +39,7 @@ libdlmalloc_nonreuse.so: dlmalloc_nonreuse.c.o
 	strip $@
 endif
 
-dlmalloc_nonreuse.c.o: dlmalloc_nonreuse.c dlmalloc_nonreuse.h
+dlmalloc_nonreuse.c.o: dlmalloc_nonreuse.c dlmalloc_nonreuse.h malloc_utrace.h
 	$(CC) $(CFLAGS) -fPIC $< -o $@
 
 clean:

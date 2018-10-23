@@ -417,18 +417,26 @@ static int pthread_init_lock (MLOCK_T *lk) {
 #include<sys/param.h>
 #include<sys/uio.h>
 #include<sys/ktrace.h>
+#include"malloc_utrace.h"
 static int malloc_utrace = 1;
 static MLOCK_T malloc_utrace_lock = ATOMIC_FLAG_INIT;
 
 typedef struct {
+  char sig[MALLOC_UTRACE_SIG_SZ];
   void *p;
   size_t s;
   void *r;
+  void* pc;
 } malloc_utrace_t;
 
-#define	UTRACE(a, b, c)\
+#define	UTRACE(a, b, c, d)\
   if(malloc_utrace) {\
-    malloc_utrace_t ut = {a, b, c};\
+    malloc_utrace_t ut;\
+    memmove(ut.sig, MALLOC_UTRACE_SIG, MALLOC_UTRACE_SIG_SZ);\
+		ut.p = (a);\
+		ut.s = (b);\
+		ut.r = (c);\
+		ut.pc = (d);\
     utrace(&ut, sizeof(ut));\
   }
 
@@ -441,7 +449,7 @@ typedef struct {
 }
 
 #else
-#define UTRACE(a, b, c)
+#define UTRACE(a, b, c, d)
 #define UTRACE_ACQUIRE_LOCK()
 #define UTRACE_RELEASE_LOCK()
 #endif // MALLOC_UTRACE
@@ -1433,7 +1441,7 @@ static int init_mparams(void) {
     size_t psize;
     size_t gsize;
 
-    UTRACE(0, 0, 0);
+    UTRACE(0, 0, 0, __builtin_return_address(0));
 
     psize = malloc_getpagesize;
     gsize = ((DEFAULT_GRANULARITY != 0)? DEFAULT_GRANULARITY : psize);
@@ -2781,7 +2789,11 @@ static void* tmalloc_small(mstate m, size_t nb) {
 static int
 is_longlived(void* callsite) {
   static int init = 0;
-  if(callsite == (void*)0x803a491ca || callsite == (void*)0x803a48e3e || init == 0) {
+  if(callsite == (void*)0x803a491ca
+      || callsite == (void*)0x803a2f38a
+      || callsite == (void*)0x803a48e3e
+      || callsite == (void*)0x803a49459
+      || init == 0) {
     init = 1;
     return 0;
   }
@@ -2944,7 +2956,7 @@ dlmalloc(size_t bytes) {
 
   UTRACE_ACQUIRE_LOCK();
   void* ret = dlmalloc_internal(cm, bytes);
-  UTRACE(0, bytes, ret);
+  UTRACE(0, bytes, ret, __builtin_return_address(0));
   UTRACE_RELEASE_LOCK();
   return ret;
 }
@@ -3157,7 +3169,7 @@ dlfree(void* mem) {
 
   UTRACE_ACQUIRE_LOCK();
   dlfree_wrap(cm, mem);
-  UTRACE(mem, 0, 0);
+  UTRACE(mem, 0, 0, __builtin_return_address(0));
   UTRACE_RELEASE_LOCK();
 }
 
@@ -3177,7 +3189,7 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
     cm = gmp;
   UTRACE_ACQUIRE_LOCK();
   mem = dlmalloc_internal(cm, req);
-  UTRACE(0, req, mem);
+  UTRACE(0, req, mem, __builtin_return_address(0));
   UTRACE_RELEASE_LOCK();
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
@@ -3428,7 +3440,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
         }
       }
     }
-    UTRACE(oldmem, bytes, mem);
+    UTRACE(oldmem, bytes, mem, __builtin_return_address(0));
     UTRACE_RELEASE_LOCK();
   }
   return mem;
@@ -3463,7 +3475,7 @@ int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   }
   else {
     *pp = mem;
-    UTRACE(0, bytes, mem);
+    UTRACE(0, bytes, mem, __builtin_return_address(0));
     UTRACE_RELEASE_LOCK();
     return 0;
   }

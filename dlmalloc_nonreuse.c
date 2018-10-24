@@ -3436,7 +3436,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
         if (mem != 0) {
           size_t oc = chunksize(oldp) - overhead_for(oldp);
           memcpy(mem, oldmem, (oc < bytes)? oc : bytes);
-          dlfree_internal(m, oldmem);
+          dlfree_wrap(m, oldmem);
         }
       }
     }

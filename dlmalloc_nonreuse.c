@@ -218,6 +218,9 @@
 /* segment bit set in create_mspace_with_base */
 #define EXTERN_BIT            (8U)
 
+#define RET_SIGNATURE() ((void*)((size_t)__builtin_return_address(0)\
+    ))
+
 
 /* --------------------------- Lock preliminaries ------------------------ */
 
@@ -1441,7 +1444,7 @@ static int init_mparams(void) {
     size_t psize;
     size_t gsize;
 
-    UTRACE(0, 0, 0, __builtin_return_address(0));
+    UTRACE(0, 0, 0, RET_SIGNATURE());
 
     psize = malloc_getpagesize;
     gsize = ((DEFAULT_GRANULARITY != 0)? DEFAULT_GRANULARITY : psize);
@@ -2949,14 +2952,14 @@ dlmalloc_internal(mstate cm, size_t bytes) {
 void*
 dlmalloc(size_t bytes) {
   mstate cm;
-  if(is_longlived(__builtin_return_address(0)))
+  if(is_longlived(RET_SIGNATURE()))
     cm = lmp;
   else
     cm = gmp;
 
   UTRACE_ACQUIRE_LOCK();
   void* ret = dlmalloc_internal(cm, bytes);
-  UTRACE(0, bytes, ret, __builtin_return_address(0));
+  UTRACE(0, bytes, ret, RET_SIGNATURE());
   UTRACE_RELEASE_LOCK();
   return ret;
 }
@@ -3169,7 +3172,7 @@ dlfree(void* mem) {
 
   UTRACE_ACQUIRE_LOCK();
   dlfree_wrap(cm, mem);
-  UTRACE(mem, 0, 0, __builtin_return_address(0));
+  UTRACE(mem, 0, 0, RET_SIGNATURE());
   UTRACE_RELEASE_LOCK();
 }
 
@@ -3183,13 +3186,13 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
   mstate cm;
-  if(is_longlived(__builtin_return_address(0)))
+  if(is_longlived(RET_SIGNATURE()))
     cm = lmp;
   else
     cm = gmp;
   UTRACE_ACQUIRE_LOCK();
   mem = dlmalloc_internal(cm, req);
-  UTRACE(0, req, mem, __builtin_return_address(0));
+  UTRACE(0, req, mem, RET_SIGNATURE());
   UTRACE_RELEASE_LOCK();
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
@@ -3440,7 +3443,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
         }
       }
     }
-    UTRACE(oldmem, bytes, mem, __builtin_return_address(0));
+    UTRACE(oldmem, bytes, mem, RET_SIGNATURE());
     UTRACE_RELEASE_LOCK();
   }
   return mem;
@@ -3449,7 +3452,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   void* mem = 0;
   mstate cm;
-  if(is_longlived(__builtin_return_address(0)))
+  if(is_longlived(RET_SIGNATURE()))
     cm = lmp;
   else
     cm = gmp;
@@ -3475,7 +3478,7 @@ int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   }
   else {
     *pp = mem;
-    UTRACE(0, bytes, mem, __builtin_return_address(0));
+    UTRACE(0, bytes, mem, RET_SIGNATURE());
     UTRACE_RELEASE_LOCK();
     return 0;
   }

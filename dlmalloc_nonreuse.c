@@ -2791,16 +2791,7 @@ static void* tmalloc_small(mstate m, size_t nb) {
 
 static int
 is_longlived(void* callsite) {
-  static int init = 0;
-  if(callsite == (void*)0x803a491ca
-      || callsite == (void*)0x803a2f38a
-      || callsite == (void*)0x803a48e3e
-      || callsite == (void*)0x803a49459
-      || init == 0) {
-    init = 1;
-    return 0;
-  }
-  return 1;
+  return 0;
 }
 
 static void*
@@ -3126,6 +3117,10 @@ dlfree_wrap(mstate cm, void* mem) {
       USAGE_ERROR_ACTION(cm, p);
     postaction:
       if(gmp->freebufbytes > (size_t)((gmp->footprint+lmp->footprint)*DEFAULT_FREEBUF_PERCENT)) {
+#if SWEEP_STATS
+        gmp->sweepTimes++;
+        gmp->sweptBytes += gmp->footprint+lmp->footprint;
+#endif // SWEEP_STATS
         mchunkptr freebin = &gmp->freebufbin;
         for(size_t i=0; i<DEFAULT_SWEEP_SIZE; i++) {
           mchunkptr ret = freebin->fd;
@@ -3148,10 +3143,6 @@ dlfree_wrap(mstate cm, void* mem) {
             freem = gmp;
           dlfree_internal(freem, chunk2mem(ret));
         }
-#if SWEEP_STATS
-        gmp->sweepTimes++;
-        gmp->sweptBytes += gmp->footprint+lmp->footprint;
-#endif // SWEEP_STATS
       }
       POSTACTION(gmp);
     }

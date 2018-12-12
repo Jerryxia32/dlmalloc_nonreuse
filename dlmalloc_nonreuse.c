@@ -2967,15 +2967,7 @@ dlfree_internal(mstate cm, void* mem) {
 
   if (mem != 0) {
     mchunkptr p  = mem2chunk(mem);
-#if FREEBUF_MODE
     if (1) {
-#else // FREEBUF_MODE
-    if(!PREACTION(gmp)) {
-#if SWEEP_STATS
-      gmp->sweepTimes++;
-      gmp->sweptBytes += gmp->footprint + lmp->footprint;
-#endif // SWEEP_STATS
-#endif // FREEBUF_MODE
       check_inuse_chunk(cm, p);
       if (RTCHECK(ok_address(cm, p) && ok_inuse(p))) {
         size_t psize = chunksize(p);
@@ -3061,9 +3053,6 @@ dlfree_internal(mstate cm, void* mem) {
     erroraction:
       USAGE_ERROR_ACTION(cm, p);
     postaction:
-#if !FREEBUF_MODE
-      POSTACTION(gmp);
-#endif // !FREEBUF_MODE
       ;
     }
   }
@@ -3071,7 +3060,6 @@ dlfree_internal(mstate cm, void* mem) {
 
 static void
 dlfree_wrap(mstate cm, void* mem) {
-#if FREEBUF_MODE
   if(mem != 0) {
     mchunkptr p  = mem2chunk(mem);
     if(!PREACTION(gmp)) {
@@ -3147,10 +3135,6 @@ dlfree_wrap(mstate cm, void* mem) {
       POSTACTION(gmp);
     }
   }
-
-#else // FREEBUF_MODE
-  dlfree_internal(cm, mem);
-#endif
 }
 
 void

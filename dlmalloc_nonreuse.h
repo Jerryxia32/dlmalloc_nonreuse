@@ -418,7 +418,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define USE_RECURSIVE_LOCKS 0
 #define HAVE_MMAP 1
 #define MAX_RELEASE_CHECK_RATE 4095
-#define FREEBUF_MODE 1
 //#define MALLOC_UTRACE
 
 // Override default non-reuse compile-time parameters here.
@@ -428,10 +427,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define SWEEP_STATS 0
 
 //-----------------------------------------------------------------------------
-
-#ifndef FREEBUF_MODE
-#define FREEBUF_MODE 1
-#endif // FREEBUF_MODE
 
 // the default number of how many capabilities to sweep per sweep
 #ifndef DEFAULT_SWEEP_SIZE

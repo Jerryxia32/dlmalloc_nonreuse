@@ -425,6 +425,7 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define FOOTERS 0
 #define MAX_RELEASE_CHECK_RATE 4095
 //#define MALLOC_UTRACE
+#define MMAP_SHADOW_SHIFT (6U)
 
 // Override default non-reuse compile-time parameters here.
 #define DEFAULT_FREEBUF_PERCENT ((double)0.2)

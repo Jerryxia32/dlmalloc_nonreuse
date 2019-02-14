@@ -181,6 +181,7 @@ typedef struct {
 #if HAVE_MMAP
 
 #define MUNMAP_DEFAULT(a, s)  munmap((a), (s))
+#define MUNMAP_SHADOW(a, s)  munmap((void*)((size_t)(a)>>MMAP_SHADOW_SHIFT), (s)>>MMAP_SHADOW_SHIFT)
 #define MMAP_PROT            (PROT_READ|PROT_WRITE)
 
 #if !defined(MAP_ANONYMOUS) && !defined(MAP_ANON)
@@ -191,6 +192,9 @@ typedef struct {
 
 #define MMAP_FLAGS           (MAP_PRIVATE|MAP_ANONYMOUS)
 #define MMAP_DEFAULT(s)       mmap(0, (s), MMAP_PROT, MMAP_FLAGS, -1, 0)
+
+#define MMAP_SHADOW_FLAGS    (MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT|MAP_FIXED)
+#define MMAP_SHADOW(addr, s)       mmap((void*)((size_t)(addr)>>MMAP_SHADOW_SHIFT), (s)>>MMAP_SHADOW_SHIFT, MMAP_PROT, MMAP_SHADOW_FLAGS, -1, 0)
 
 #define DIRECT_MMAP_DEFAULT(s) MMAP_DEFAULT(s)
 #endif /* HAVE_MMAP */
@@ -2417,6 +2421,9 @@ static void* sys_alloc(mstate m, size_t nb) {
 
   if (HAVE_MMAP && tbase == CMFAIL) {  /* Try MMAP */
     char* mp = (char*)(CALL_MMAP(asize));
+    if(MMAP_SHADOW(mp, asize) == CMFAIL) {
+      MALLOC_FAILURE_ACTION;
+    }
     if (mp != CMFAIL) {
       tbase = mp;
       tsize = asize;
@@ -2528,6 +2535,7 @@ static size_t release_unused_segments(mstate m) {
           unlink_large_chunk(m, tp);
         }
         if (CALL_MUNMAP(base, size) == 0) {
+          MUNMAP_SHADOW(base, size);
           released += size;
           m->footprint -= size;
           /* unlink obsoleted record */
@@ -2573,6 +2581,7 @@ static int sys_trim(mstate m, size_t pad) {
             /* Prefer mremap, fall back to munmap */
             if ((CALL_MREMAP(sp->base, sp->size, newsize, 0) != MFAIL) ||
                 (CALL_MUNMAP(sp->base + newsize, extra) == 0)) {
+              MUNMAP_SHADOW(sp->base+newsize, extra);
               released = extra;
             }
           }
@@ -2609,8 +2618,10 @@ static void dispose_chunk(mstate m, mchunkptr p, size_t psize) {
     size_t prevsize = p->prev_foot;
     if (is_mmapped(p)) {
       psize += prevsize + MMAP_FOOT_PAD;
-      if (CALL_MUNMAP((char*)p - prevsize, psize) == 0)
+      if (CALL_MUNMAP((char*)p - prevsize, psize) == 0) {
+        MUNMAP_SHADOW((char*)p - prevsize, psize);
         m->footprint -= psize;
+      }
       return;
     }
     prev = chunk_minus_offset(p, prevsize);
@@ -2961,8 +2972,10 @@ dlfree_internal(void* mem) {
           size_t prevsize = p->prev_foot;
           if (is_mmapped(p)) {
             psize += prevsize + MMAP_FOOT_PAD;
-            if (CALL_MUNMAP((char*)p - prevsize, psize) == 0)
+            if (CALL_MUNMAP((char*)p - prevsize, psize) == 0) {
+              MUNMAP_SHADOW((char*)p - prevsize, psize);
               fm->footprint -= psize;
+            }
             goto postaction;
           }
           else {

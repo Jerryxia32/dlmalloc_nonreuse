@@ -2952,16 +2952,7 @@ dlfree_internal(void* mem) {
 #define fm gm
 #endif /* FOOTERS */
 
-#if FREEBUF_MODE
     if (1) {
-#else // FREEBUF_MODE
-    UTRACE(mem, 0, 0);
-    if(!PREACTION(fm)) {
-#if SWEEP_STATS
-      fm->sweepTimes++;
-      fm->sweptBytes += fm->footprint;
-#endif // SWEEP_STATS
-#endif // FREEBUF_MODE
       check_inuse_chunk(fm, p);
       if (RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
         size_t psize = chunksize(p);
@@ -3047,9 +3038,6 @@ dlfree_internal(void* mem) {
     erroraction:
       USAGE_ERROR_ACTION(fm, p);
     postaction:
-#if !FREEBUF_MODE
-      POSTACTION(fm);
-#endif // !FREEBUF_MODE
       ;
     }
   }
@@ -3060,7 +3048,6 @@ dlfree_internal(void* mem) {
 
 void
 dlfree(void* mem) {
-#if FREEBUF_MODE
   if(mem != 0) {
     mchunkptr p  = mem2chunk(mem);
 #if FOOTERS
@@ -3116,10 +3103,13 @@ dlfree(void* mem) {
       USAGE_ERROR_ACTION(fm, p);
     postaction:
       if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT)) {
+#if SWEEP_STATS
+        fm->sweepTimes++;
+        fm->sweptBytes += fm->footprint;
+#endif // SWEEP_STATS
         mchunkptr freebin = &fm->freebufbin;
-        for(size_t i=0; i<DEFAULT_SWEEP_SIZE; i++) {
+        while(freebin->fd != freebin) {
           mchunkptr ret = freebin->fd;
-          if(ret == freebin) break;
           unlink_first_freebuf_chunk(fm, freebin, ret);
           size_t theSize = chunksize(ret);
           mchunkptr theNext = chunk_plus_offset(ret, theSize);
@@ -3133,10 +3123,6 @@ dlfree(void* mem) {
           // list of freebufbin will get corrupted.
           dlfree_internal(chunk2mem(ret));
         }
-#if SWEEP_STATS
-        fm->sweepTimes++;
-        fm->sweptBytes += fm->footprint;
-#endif // SWEEP_STATS
       }
       POSTACTION(fm);
     }
@@ -3144,10 +3130,6 @@ dlfree(void* mem) {
 #if !FOOTERS
 #undef fm
 #endif /* FOOTERS */
-
-#else // FREEBUF_MODE
-  dlfree_internal(mem);
-#endif
 }
 
 void* dlcalloc(size_t n_elements, size_t elem_size) {

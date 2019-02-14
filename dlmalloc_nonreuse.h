@@ -424,25 +424,14 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define HAVE_MMAP 1
 #define FOOTERS 0
 #define MAX_RELEASE_CHECK_RATE 4095
-#define FREEBUF_MODE 1
 //#define MALLOC_UTRACE
 
 // Override default non-reuse compile-time parameters here.
 #define DEFAULT_FREEBUF_PERCENT ((double)0.2)
-#define DEFAULT_SWEEP_SIZE ((size_t)16U)
 // Some platforms depend on malloc when doing atexit, so disable it by default.
 #define SWEEP_STATS 0
 
 //-----------------------------------------------------------------------------
-
-#ifndef FREEBUF_MODE
-#define FREEBUF_MODE 1
-#endif // FREEBUF_MODE
-
-// the default number of how many capabilities to sweep per sweep
-#ifndef DEFAULT_SWEEP_SIZE
-#define DEFAULT_SWEEP_SIZE ((size_t)16U)
-#endif // DEFAULT_SWEEP_SIZE
 
 // Enable the report of sweeping statistics.
 #ifndef SWEEP_STATS

@@ -190,7 +190,7 @@ typedef struct {
 #define MAP_ANONYMOUS        MAP_ANON
 #endif // !defined(MAP_ANONYMOUS) && !defined(MAP_ANON)
 
-#define MMAP_FLAGS           (MAP_PRIVATE|MAP_ANONYMOUS)
+#define MMAP_FLAGS           (MAP_PRIVATE|MAP_ANONYMOUS|MAP_ALIGNED(12+MMAP_SHADOW_SHIFT))
 #define MMAP_DEFAULT(s)       mmap(0, (s), MMAP_PROT, MMAP_FLAGS, -1, 0)
 
 #define MMAP_SHADOW_FLAGS    (MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT|MAP_FIXED)
@@ -2213,6 +2213,9 @@ static void* mmap_alloc(mstate m, size_t nb) {
   if (mmsize > nb) {     /* Check for wrap around 0 */
     char* mm = (char*)(CALL_DIRECT_MMAP(mmsize));
     if (mm != CMFAIL) {
+      if(MMAP_SHADOW(mm, mmsize) != (void*)((size_t)mm>>MMAP_SHADOW_SHIFT)) {
+        ABORT;
+      }
       size_t offset = align_offset(chunk2mem(mm));
       size_t psize = mmsize - offset - MMAP_FOOT_PAD;
       mchunkptr p = (mchunkptr)(mm + offset);
@@ -2421,8 +2424,8 @@ static void* sys_alloc(mstate m, size_t nb) {
 
   if (HAVE_MMAP && tbase == CMFAIL) {  /* Try MMAP */
     char* mp = (char*)(CALL_MMAP(asize));
-    if(MMAP_SHADOW(mp, asize) == CMFAIL) {
-      MALLOC_FAILURE_ACTION;
+    if(MMAP_SHADOW(mp, asize) != (void*)((size_t)mp>>MMAP_SHADOW_SHIFT)) {
+      ABORT;
     }
     if (mp != CMFAIL) {
       tbase = mp;
@@ -3059,6 +3062,23 @@ dlfree_internal(void* mem) {
 #endif /* FOOTERS */
 }
 
+static void
+shadow_paint(void* start, size_t size, int val) {
+  if(val) {
+    for(size_t offset=(size_t)start>>3; offset<((size_t)start+size)>>3; offset++) {
+      char* shadowbyte = (char*)(offset>>3);
+      size_t bitidx = offset&0x7;
+      *shadowbyte |= (1<<bitidx);
+    }
+  } else {
+    for(size_t offset=(size_t)start>>3; offset<((size_t)start+size)>>3; offset++) {
+      char* shadowbyte = (char*)(offset>>3);
+      size_t bitidx = offset&0x7;
+      *shadowbyte &= ~(1UL<<bitidx);
+    }
+  }
+}
+
 void
 dlfree(void* mem) {
   if(mem != 0) {
@@ -3075,6 +3095,7 @@ dlfree(void* mem) {
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
+      shadow_paint(p, chunksize(p), 1);
       if(!is_mmapped(p)) {
         if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);
@@ -3125,6 +3146,7 @@ dlfree(void* mem) {
           mchunkptr ret = freebin->fd;
           unlink_first_freebuf_chunk(fm, freebin, ret);
           size_t theSize = chunksize(ret);
+          shadow_paint(ret, theSize, 0);
           mchunkptr theNext = chunk_plus_offset(ret, theSize);
           if(!is_mmapped(ret)) {
             assert(cdirty(ret));

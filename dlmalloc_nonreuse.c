@@ -997,6 +997,8 @@ struct malloc_state {
 #if SWEEP_STATS
   size_t     sweepTimes;
   size_t     sweptBytes;
+  size_t     bitsPainted;
+  size_t     bitsCleared;
 #endif // SWEEP_STATS
   flag_t     mflags;
 #if USE_LOCKS
@@ -2385,6 +2387,8 @@ static void
 print_sweep_stats() {
   fprintf(stderr, "Sweeps: %zd.\n", gm->sweepTimes);
   fprintf(stderr, "Swept bytes: %zd.\n", gm->sweptBytes);
+  fprintf(stderr, "Bits painted: %zd.\n", gm->bitsPainted);
+  fprintf(stderr, "Bits cleared: %zd.\n", gm->bitsCleared);
 }
 #endif // SWEEP_STATS
 
@@ -3075,15 +3079,30 @@ shadow_paint(void* start, size_t size) {
   char* firstByte = (char*)(realStart>>3);
   char* lastByte = (char*)(realEnd>>3);
   if(firstByte == lastByte) { // All the paint bits are within a single byte.
-    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++)
+    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++) {
       *firstByte |= 1<<bitoff;
+#if SWEEP_STATS
+      gm->bitsPainted++;
+#endif
+    }
   } else {
     char* nextByte = firstByte+1;
-    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<8; bitoff++)
+    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<8; bitoff++) {
       *firstByte |= 1<<bitoff;
+#if SWEEP_STATS
+      gm->bitsPainted++;
+#endif
+    }
     memset(nextByte, 0xff, lastByte-nextByte);
-    for(size_t bitoff=0; bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++)
+#if SWEEP_STATS
+    gm->bitsPainted += 8*(lastByte-nextByte);
+#endif
+    for(size_t bitoff=0; bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++) {
       *lastByte |= 1<<bitoff;
+#if SWEEP_STATS
+      gm->bitsPainted++;
+#endif
+    }
   }
 }
 
@@ -3094,15 +3113,30 @@ shadow_clear(void* start, size_t size) {
   char* firstByte = (char*)(realStart>>3);
   char* lastByte = (char*)(realEnd>>3);
   if(firstByte == lastByte) { // All the paint bits are within a single byte.
-    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++)
+    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++) {
       *firstByte &= ~(1<<bitoff);
+#if SWEEP_STATS
+      gm->bitsCleared++;
+#endif
+    }
   } else {
     char* nextByte = firstByte+1;
-    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<8; bitoff++)
+    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<8; bitoff++) {
       *firstByte &= ~(1<<bitoff);
+#if SWEEP_STATS
+      gm->bitsCleared++;
+#endif
+    }
     memset(nextByte, 0, lastByte-nextByte);
-    for(size_t bitoff=0; bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++)
+#if SWEEP_STATS
+    gm->bitsCleared += 8*(lastByte-nextByte);
+#endif
+    for(size_t bitoff=0; bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++) {
       *lastByte &= ~(1<<bitoff);
+#if SWEEP_STATS
+      gm->bitsCleared++;
+#endif
+    }
   }
 }
 

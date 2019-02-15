@@ -3067,13 +3067,43 @@ dlfree_internal(void* mem) {
 }
 
 // The following two functions assume 8 bits in a byte.
+#define BYTE_ALIGN_MASK (7U)
 static void
 shadow_paint(void* start, size_t size) {
-  //char* realStart = (char*)start>>3;
+  size_t realStart = (size_t)start>>MALLOC_ALIGN_BYTESHIFT;
+  size_t realEnd = (((size_t)start+size)>>MALLOC_ALIGN_BYTESHIFT);
+  char* firstByte = (char*)(realStart>>3);
+  char* lastByte = (char*)(realEnd>>3);
+  if(firstByte == lastByte) { // All the paint bits are within a single byte.
+    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++)
+      *firstByte |= 1<<bitoff;
+  } else {
+    char* nextByte = firstByte+1;
+    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<8; bitoff++)
+      *firstByte |= 1<<bitoff;
+    memset(nextByte, 0xff, lastByte-nextByte);
+    for(size_t bitoff=0; bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++)
+      *lastByte |= 1<<bitoff;
+  }
 }
 
 static void
 shadow_clear(void* start, size_t size) {
+  size_t realStart = (size_t)start>>MALLOC_ALIGN_BYTESHIFT;
+  size_t realEnd = (((size_t)start+size)>>MALLOC_ALIGN_BYTESHIFT);
+  char* firstByte = (char*)(realStart>>3);
+  char* lastByte = (char*)(realEnd>>3);
+  if(firstByte == lastByte) { // All the paint bits are within a single byte.
+    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++)
+      *firstByte &= ~(1<<bitoff);
+  } else {
+    char* nextByte = firstByte+1;
+    for(size_t bitoff=(realStart&BYTE_ALIGN_MASK); bitoff<8; bitoff++)
+      *firstByte &= ~(1<<bitoff);
+    memset(nextByte, 0, lastByte-nextByte);
+    for(size_t bitoff=0; bitoff<(realEnd&BYTE_ALIGN_MASK); bitoff++)
+      *lastByte &= ~(1<<bitoff);
+  }
 }
 
 void
@@ -3092,6 +3122,7 @@ dlfree(void* mem) {
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
+      shadow_paint(p, chunksize(p));
       if(!is_mmapped(p)) {
         if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);
@@ -3142,6 +3173,7 @@ dlfree(void* mem) {
           mchunkptr ret = freebin->fd;
           unlink_first_freebuf_chunk(fm, freebin, ret);
           size_t theSize = chunksize(ret);
+          shadow_clear(ret, theSize);
           mchunkptr theNext = chunk_plus_offset(ret, theSize);
           if(!is_mmapped(ret)) {
             assert(cdirty(ret));

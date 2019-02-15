@@ -425,9 +425,15 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define FOOTERS 0
 #define MAX_RELEASE_CHECK_RATE 4095
 //#define MALLOC_UTRACE
-#define MMAP_SHADOW_SHIFT (6U)
-#define DEFAULT_GRANULARITY ((size_t)256U * (size_t)1024U)
-#define DEFAULT_MMAP_THRESHOLD ((size_t)1024U * (size_t)1024U)
+
+// FIXME: These are partially hardcoded values.
+#define BYTE_ALIGN_MASK (7U)
+#define PAGE_SHIFT (12U)
+#define MALLOC_ALIGN_BYTESHIFT (4U)
+#define MALLOC_ALIGN_BITSHIFT (MALLOC_ALIGN_BYTESHIFT+3U)
+
+#define DEFAULT_GRANULARITY ((size_t)1U<<(PAGE_SHIFT+MALLOC_ALIGN_BITSHIFT))
+#define DEFAULT_MMAP_THRESHOLD (DEFAULT_GRANULARITY<<2U)
 
 // Override default non-reuse compile-time parameters here.
 #define DEFAULT_FREEBUF_PERCENT ((double)0.2)

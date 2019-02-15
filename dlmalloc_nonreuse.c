@@ -173,11 +173,6 @@ typedef struct {
    using so many "#if"s.
 */
 
-// XXX: These are partially hardcoded values.
-#define PAGE_SHIFT (12)
-#define MALLOC_ALIGN_BYTESHIFT (4)
-#define MALLOC_ALIGN_BITSHIFT (MALLOC_ALIGN_BYTESHIFT+3)
-
 /* MMAP must return MFAIL on failure */
 #define MFAIL                ((void*)(MAX_SIZE_T))
 #define CMFAIL               ((char*)(MFAIL)) /* defined for convenience */
@@ -3071,7 +3066,6 @@ dlfree_internal(void* mem) {
 }
 
 // The following two functions assume 8 bits in a byte.
-#define BYTE_ALIGN_MASK (7U)
 static void
 shadow_paint(void* start, size_t size) {
   size_t realStart = (size_t)start>>MALLOC_ALIGN_BYTESHIFT;

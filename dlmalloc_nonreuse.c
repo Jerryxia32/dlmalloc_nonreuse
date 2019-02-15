@@ -173,6 +173,10 @@ typedef struct {
    using so many "#if"s.
 */
 
+// XXX: These are partially hardcoded values.
+#define PAGE_SHIFT (12)
+#define MALLOC_ALIGN_BYTESHIFT (4)
+#define MALLOC_ALIGN_BITSHIFT (MALLOC_ALIGN_BYTESHIFT+3)
 
 /* MMAP must return MFAIL on failure */
 #define MFAIL                ((void*)(MAX_SIZE_T))
@@ -181,7 +185,7 @@ typedef struct {
 #if HAVE_MMAP
 
 #define MUNMAP_DEFAULT(a, s)  munmap((a), (s))
-#define MUNMAP_SHADOW(a, s)  munmap((void*)((size_t)(a)>>MMAP_SHADOW_SHIFT), (s)>>MMAP_SHADOW_SHIFT)
+#define MUNMAP_SHADOW(a, s)  munmap((void*)((size_t)(a)>>MALLOC_ALIGN_BITSHIFT), (s)>>MALLOC_ALIGN_BITSHIFT)
 #define MMAP_PROT            (PROT_READ|PROT_WRITE)
 
 #if !defined(MAP_ANONYMOUS) && !defined(MAP_ANON)
@@ -190,11 +194,11 @@ typedef struct {
 #define MAP_ANONYMOUS        MAP_ANON
 #endif // !defined(MAP_ANONYMOUS) && !defined(MAP_ANON)
 
-#define MMAP_FLAGS           (MAP_PRIVATE|MAP_ANONYMOUS|MAP_ALIGNED(12+MMAP_SHADOW_SHIFT))
+#define MMAP_FLAGS           (MAP_PRIVATE|MAP_ANONYMOUS|MAP_ALIGNED(PAGE_SHIFT+MALLOC_ALIGN_BITSHIFT))
 #define MMAP_DEFAULT(s)       mmap(0, (s), MMAP_PROT, MMAP_FLAGS, -1, 0)
 
 #define MMAP_SHADOW_FLAGS    (MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT|MAP_FIXED)
-#define MMAP_SHADOW(addr, s)       mmap((void*)((size_t)(addr)>>MMAP_SHADOW_SHIFT), (s)>>MMAP_SHADOW_SHIFT, MMAP_PROT, MMAP_SHADOW_FLAGS, -1, 0)
+#define MMAP_SHADOW(addr, s)       mmap((void*)((size_t)(addr)>>MALLOC_ALIGN_BITSHIFT), (s)>>MALLOC_ALIGN_BITSHIFT, MMAP_PROT, MMAP_SHADOW_FLAGS, -1, 0)
 
 #define DIRECT_MMAP_DEFAULT(s) MMAP_DEFAULT(s)
 #endif /* HAVE_MMAP */
@@ -2213,7 +2217,7 @@ static void* mmap_alloc(mstate m, size_t nb) {
   if (mmsize > nb) {     /* Check for wrap around 0 */
     char* mm = (char*)(CALL_DIRECT_MMAP(mmsize));
     if (mm != CMFAIL) {
-      if(MMAP_SHADOW(mm, mmsize) != (void*)((size_t)mm>>MMAP_SHADOW_SHIFT)) {
+      if(MMAP_SHADOW(mm, mmsize) != (void*)((size_t)mm>>MALLOC_ALIGN_BITSHIFT)) {
         ABORT;
       }
       size_t offset = align_offset(chunk2mem(mm));
@@ -2424,7 +2428,7 @@ static void* sys_alloc(mstate m, size_t nb) {
 
   if (HAVE_MMAP && tbase == CMFAIL) {  /* Try MMAP */
     char* mp = (char*)(CALL_MMAP(asize));
-    if(MMAP_SHADOW(mp, asize) != (void*)((size_t)mp>>MMAP_SHADOW_SHIFT)) {
+    if(MMAP_SHADOW(mp, asize) != (void*)((size_t)mp>>MALLOC_ALIGN_BITSHIFT)) {
       ABORT;
     }
     if (mp != CMFAIL) {
@@ -3062,21 +3066,14 @@ dlfree_internal(void* mem) {
 #endif /* FOOTERS */
 }
 
+// The following two functions assume 8 bits in a byte.
 static void
-shadow_paint(void* start, size_t size, int val) {
-  if(val) {
-    for(size_t offset=(size_t)start>>3; offset<((size_t)start+size)>>3; offset++) {
-      char* shadowbyte = (char*)(offset>>3);
-      size_t bitidx = offset&0x7;
-      *shadowbyte |= (1<<bitidx);
-    }
-  } else {
-    for(size_t offset=(size_t)start>>3; offset<((size_t)start+size)>>3; offset++) {
-      char* shadowbyte = (char*)(offset>>3);
-      size_t bitidx = offset&0x7;
-      *shadowbyte &= ~(1UL<<bitidx);
-    }
-  }
+shadow_paint(void* start, size_t size) {
+  //char* realStart = (char*)start>>3;
+}
+
+static void
+shadow_clear(void* start, size_t size) {
 }
 
 void
@@ -3095,7 +3092,6 @@ dlfree(void* mem) {
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
-      shadow_paint(p, chunksize(p), 1);
       if(!is_mmapped(p)) {
         if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);
@@ -3146,7 +3142,6 @@ dlfree(void* mem) {
           mchunkptr ret = freebin->fd;
           unlink_first_freebuf_chunk(fm, freebin, ret);
           size_t theSize = chunksize(ret);
-          shadow_paint(ret, theSize, 0);
           mchunkptr theNext = chunk_plus_offset(ret, theSize);
           if(!is_mmapped(ret)) {
             assert(cdirty(ret));

@@ -3122,7 +3122,6 @@ dlfree(void* mem) {
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
-      shadow_paint(p, chunksize(p));
       if(!is_mmapped(p)) {
         if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);
@@ -3169,6 +3168,11 @@ dlfree(void* mem) {
         fm->sweptBytes += fm->footprint;
 #endif // SWEEP_STATS
         mchunkptr freebin = &fm->freebufbin;
+        mchunkptr thePtr = freebin->fd;
+        while(thePtr != freebin) {
+          shadow_paint(thePtr, chunksize(thePtr));
+          thePtr = thePtr->fd;
+        }
         while(freebin->fd != freebin) {
           mchunkptr ret = freebin->fd;
           unlink_first_freebuf_chunk(fm, freebin, ret);

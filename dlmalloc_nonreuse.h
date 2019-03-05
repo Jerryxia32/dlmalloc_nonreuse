@@ -654,12 +654,8 @@ extern "C" {
 #define dlcalloc               calloc
 #define dlfree                 free
 #define dlmalloc               malloc
-#define dlmemalign             memalign
 #define dlposix_memalign       posix_memalign
 #define dlrealloc              realloc
-#define dlrealloc_in_place     realloc_in_place
-#define dlvalloc               valloc
-#define dlpvalloc              pvalloc
 #define dlmallinfo             mallinfo
 #define dlmallopt              mallopt
 #define dlmalloc_trim          malloc_trim
@@ -670,9 +666,6 @@ extern "C" {
 #define dlmalloc_footprint_limit malloc_footprint_limit
 #define dlmalloc_set_footprint_limit malloc_set_footprint_limit
 #define dlmalloc_inspect_all   malloc_inspect_all
-#define dlindependent_calloc   independent_calloc
-#define dlindependent_comalloc independent_comalloc
-#define dlbulk_free            bulk_free
 #endif /* USE_DL_PREFIX */
 
 /*
@@ -732,35 +725,6 @@ DLMALLOC_EXPORT void* dlcalloc(size_t, size_t);
 DLMALLOC_EXPORT void* dlrealloc(void*, size_t);
 
 /*
-  realloc_in_place(void* p, size_t n)
-  Resizes the space allocated for p to size n, only if this can be
-  done without moving p (i.e., only if there is adjacent space
-  available if n is greater than p's current allocated size, or n is
-  less than or equal to p's size). This may be used instead of plain
-  realloc if an alternative allocation strategy is needed upon failure
-  to expand space; for example, reallocation of a buffer that must be
-  memory-aligned or cleared. You can use realloc_in_place to trigger
-  these alternatives only when needed.
-
-  Returns p if successful; otherwise null.
-*/
-DLMALLOC_EXPORT void* dlrealloc_in_place(void*, size_t);
-
-/*
-  memalign(size_t alignment, size_t n);
-  Returns a pointer to a newly allocated chunk of n bytes, aligned
-  in accord with the alignment argument.
-
-  The alignment argument should be a power of two. If the argument is
-  not a power of two, the nearest greater power is used.
-  8-byte alignment is guaranteed by normal malloc calls, so don't
-  bother calling memalign with an argument of 8 or less.
-
-  Overreliance on memalign is a sure way to fragment space.
-*/
-DLMALLOC_EXPORT void* dlmemalign(size_t, size_t);
-
-/*
   int posix_memalign(void** pp, size_t alignment, size_t n);
   Allocates a chunk of n bytes, aligned in accord with the alignment
   argument. Differs from memalign only in that it (1) assigns the
@@ -769,13 +733,6 @@ DLMALLOC_EXPORT void* dlmemalign(size_t, size_t);
   returns ENOMEM if memory cannot be allocated.
 */
 DLMALLOC_EXPORT int dlposix_memalign(void**, size_t, size_t);
-
-/*
-  valloc(size_t n);
-  Equivalent to memalign(pagesize, n), where pagesize is the page
-  size of the system. If the pagesize is unknown, 4096 is used.
-*/
-DLMALLOC_EXPORT void* dlvalloc(size_t);
 
 /*
   mallopt(int parameter_number, int parameter_value)
@@ -909,133 +866,6 @@ DLMALLOC_EXPORT void dlmalloc_inspect_all(void(*handler)(void*, void *, size_t, 
 */
 DLMALLOC_EXPORT struct mallinfo dlmallinfo(void);
 #endif /* NO_MALLINFO */
-
-/*
-  independent_calloc(size_t n_elements, size_t element_size, void* chunks[]);
-
-  independent_calloc is similar to calloc, but instead of returning a
-  single cleared space, it returns an array of pointers to n_elements
-  independent elements that can hold contents of size elem_size, each
-  of which starts out cleared, and can be independently freed,
-  realloc'ed etc. The elements are guaranteed to be adjacently
-  allocated (this is not guaranteed to occur with multiple callocs or
-  mallocs), which may also improve cache locality in some
-  applications.
-
-  The "chunks" argument is optional (i.e., may be null, which is
-  probably the most typical usage). If it is null, the returned array
-  is itself dynamically allocated and should also be freed when it is
-  no longer needed. Otherwise, the chunks array must be of at least
-  n_elements in length. It is filled in with the pointers to the
-  chunks.
-
-  In either case, independent_calloc returns this pointer array, or
-  null if the allocation failed.  If n_elements is zero and "chunks"
-  is null, it returns a chunk representing an array with zero elements
-  (which should be freed if not wanted).
-
-  Each element must be freed when it is no longer needed. This can be
-  done all at once using bulk_free.
-
-  independent_calloc simplifies and speeds up implementations of many
-  kinds of pools.  It may also be useful when constructing large data
-  structures that initially have a fixed number of fixed-sized nodes,
-  but the number is not known at compile time, and some of the nodes
-  may later need to be freed. For example:
-
-  struct Node { int item; struct Node* next; };
-
-  struct Node* build_list() {
-    struct Node** pool;
-    int n = read_number_of_nodes_needed();
-    if (n <= 0) return 0;
-    pool = (struct Node**)(independent_calloc(n, sizeof(struct Node), 0);
-    if (pool == 0) die();
-    // organize into a linked list...
-    struct Node* first = pool[0];
-    for (i = 0; i < n-1; ++i)
-      pool[i]->next = pool[i+1];
-    free(pool);     // Can now free the array (or not, if it is needed later)
-    return first;
-  }
-*/
-DLMALLOC_EXPORT void** dlindependent_calloc(size_t, size_t, void**);
-
-/*
-  independent_comalloc(size_t n_elements, size_t sizes[], void* chunks[]);
-
-  independent_comalloc allocates, all at once, a set of n_elements
-  chunks with sizes indicated in the "sizes" array.    It returns
-  an array of pointers to these elements, each of which can be
-  independently freed, realloc'ed etc. The elements are guaranteed to
-  be adjacently allocated (this is not guaranteed to occur with
-  multiple callocs or mallocs), which may also improve cache locality
-  in some applications.
-
-  The "chunks" argument is optional (i.e., may be null). If it is null
-  the returned array is itself dynamically allocated and should also
-  be freed when it is no longer needed. Otherwise, the chunks array
-  must be of at least n_elements in length. It is filled in with the
-  pointers to the chunks.
-
-  In either case, independent_comalloc returns this pointer array, or
-  null if the allocation failed.  If n_elements is zero and chunks is
-  null, it returns a chunk representing an array with zero elements
-  (which should be freed if not wanted).
-
-  Each element must be freed when it is no longer needed. This can be
-  done all at once using bulk_free.
-
-  independent_comallac differs from independent_calloc in that each
-  element may have a different size, and also that it does not
-  automatically clear elements.
-
-  independent_comalloc can be used to speed up allocation in cases
-  where several structs or objects must always be allocated at the
-  same time.  For example:
-
-  struct Head { ... }
-  struct Foot { ... }
-
-  void send_message(char* msg) {
-    int msglen = strlen(msg);
-    size_t sizes[3] = { sizeof(struct Head), msglen, sizeof(struct Foot) };
-    void* chunks[3];
-    if (independent_comalloc(3, sizes, chunks) == 0)
-      die();
-    struct Head* head = (struct Head*)(chunks[0]);
-    char*        body = (char*)(chunks[1]);
-    struct Foot* foot = (struct Foot*)(chunks[2]);
-    // ...
-  }
-
-  In general though, independent_comalloc is worth using only for
-  larger values of n_elements. For small values, you probably won't
-  detect enough difference from series of malloc calls to bother.
-
-  Overuse of independent_comalloc can increase overall memory usage,
-  since it cannot reuse existing noncontiguous small chunks that
-  might be available for some of the elements.
-*/
-DLMALLOC_EXPORT void** dlindependent_comalloc(size_t, size_t*, void**);
-
-/*
-  bulk_free(void* array[], size_t n_elements)
-  Frees and clears (sets to null) each non-null pointer in the given
-  array.  This is likely to be faster than freeing them one-by-one.
-  If footers are used, pointers that have been allocated in different
-  mspaces are not freed or cleared, and the count of all such pointers
-  is returned.  For large arrays of pointers with poor locality, it
-  may be worthwhile to sort this array before calling bulk_free.
-*/
-DLMALLOC_EXPORT size_t  dlbulk_free(void**, size_t n_elements);
-
-/*
-  pvalloc(size_t n);
-  Equivalent to valloc(minimum-page-that-holds(n)), that is,
-  round up n to nearest pagesize.
- */
-DLMALLOC_EXPORT void*  dlpvalloc(size_t);
 
 /*
   malloc_trim(size_t pad);

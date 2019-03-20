@@ -992,6 +992,8 @@ struct malloc_state {
 #if SWEEP_STATS
   size_t     sweepTimes;
   size_t     sweptBytes;
+  size_t     freeTimes;
+  size_t     freeBytes;
   size_t     bitsPainted;
   size_t     bitsCleared;
 #endif // SWEEP_STATS
@@ -2382,6 +2384,8 @@ static void
 print_sweep_stats() {
   fprintf(stderr, "Sweeps: %zd.\n", gm->sweepTimes);
   fprintf(stderr, "Swept bytes: %zd.\n", gm->sweptBytes);
+  fprintf(stderr, "Frees: %zd.\n", gm->freeTimes);
+  fprintf(stderr, "Free bytes: %zd.\n", gm->freeBytes);
   fprintf(stderr, "Bits painted: %zd.\n", gm->bitsPainted);
   fprintf(stderr, "Bits cleared: %zd.\n", gm->bitsCleared);
 }
@@ -3150,6 +3154,10 @@ dlfree(void* mem) {
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);
+#if SWEEP_STATS
+      fm->freeTimes++;
+      fm->freeBytes += chunksize(p);
+#endif // SWEEP_STATS
       if(!is_mmapped(p)) {
         if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);

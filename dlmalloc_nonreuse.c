@@ -2249,9 +2249,11 @@ static void* mmap_alloc(mstate m, size_t nb) {
   if (mmsize > nb) {     /* Check for wrap around 0 */
     char* mm = (char*)(CALL_DIRECT_MMAP(mmsize));
     if (mm != CMFAIL) {
+#ifndef __CHERI_PURE_CAPABILITY__
       if(MMAP_SHADOW(mm, mmsize) != (void*)((size_t)mm>>MALLOC_ALIGN_BITSHIFT)) {
         ABORT;
       }
+#endif
       size_t offset = align_offset(chunk2mem(mm));
       size_t psize = mmsize - offset - MMAP_FOOT_PAD;
       mchunkptr p = (mchunkptr)(mm + offset);
@@ -2464,9 +2466,11 @@ static void* sys_alloc(mstate m, size_t nb) {
 
   if (HAVE_MMAP && tbase == CMFAIL) {  /* Try MMAP */
     char* mp = (char*)(CALL_MMAP(asize));
+#ifndef __CHERI_PURE_CAPABILITY__
     if(MMAP_SHADOW(mp, asize) != (void*)((size_t)mp>>MALLOC_ALIGN_BITSHIFT)) {
       ABORT;
     }
+#endif
     if (mp != CMFAIL) {
       tbase = mp;
       tsize = asize;
@@ -2578,7 +2582,9 @@ static size_t release_unused_segments(mstate m) {
           unlink_large_chunk(m, tp);
         }
         if (CALL_MUNMAP(base, size) == 0) {
+#ifndef __CHERI_PURE_CAPABILITY__
           MUNMAP_SHADOW(base, size);
+#endif
           released += size;
           m->footprint -= size;
           /* unlink obsoleted record */
@@ -2624,7 +2630,9 @@ static int sys_trim(mstate m, size_t pad) {
             /* Prefer mremap, fall back to munmap */
             if ((CALL_MREMAP(sp->base, sp->size, newsize, 0) != MFAIL) ||
                 (CALL_MUNMAP(sp->base + newsize, extra) == 0)) {
+#ifndef __CHERI_PURE_CAPABILITY__
               MUNMAP_SHADOW(sp->base+newsize, extra);
+#endif
               released = extra;
             }
           }
@@ -2662,7 +2670,9 @@ static void dispose_chunk(mstate m, mchunkptr p, size_t psize) {
     if (is_mmapped(p)) {
       psize += prevsize + MMAP_FOOT_PAD;
       if (CALL_MUNMAP((char*)p - prevsize, psize) == 0) {
+#ifndef __CHERI_PURE_CAPABILITY__
         MUNMAP_SHADOW((char*)p - prevsize, psize);
+#endif
         m->footprint -= psize;
       }
       return;
@@ -3016,7 +3026,9 @@ dlfree_internal(void* mem) {
           if (is_mmapped(p)) {
             psize += prevsize + MMAP_FOOT_PAD;
             if (CALL_MUNMAP((char*)p - prevsize, psize) == 0) {
+#ifndef __CHERI_PURE_CAPABILITY__
               MUNMAP_SHADOW((char*)p - prevsize, psize);
+#endif
               fm->footprint -= psize;
             }
             goto postaction;
@@ -3102,6 +3114,7 @@ dlfree_internal(void* mem) {
 #endif /* FOOTERS */
 }
 
+#ifndef __CHERI_PURE_CAPABILITY__
 // The following two functions assume 8 bits in a byte.
 static void
 shadow_paint(void* start, size_t size) {
@@ -3170,6 +3183,7 @@ shadow_clear(void* start, size_t size) {
     }
   }
 }
+#endif
 
 void
 dlfree(void* mem) {
@@ -3239,14 +3253,18 @@ dlfree(void* mem) {
         mchunkptr freebin = &fm->freebufbin;
         mchunkptr thePtr = freebin->fd;
         while(thePtr != freebin) {
+#ifndef __CHERI_PURE_CAPABILITY__
           shadow_paint(thePtr, chunksize(thePtr));
+#endif
           thePtr = thePtr->fd;
         }
         while(freebin->fd != freebin) {
           mchunkptr ret = freebin->fd;
           unlink_first_freebuf_chunk(fm, freebin, ret);
           size_t theSize = chunksize(ret);
+#ifndef __CHERI_PURE_CAPABILITY__
           shadow_clear(ret, theSize);
+#endif
           mchunkptr theNext = chunk_plus_offset(ret, theSize);
           if(!is_mmapped(ret)) {
             assert(cdirty(ret));

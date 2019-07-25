@@ -2326,6 +2326,7 @@ static void init_bins(mstate m) {
   freebin->fd = freebin->bk = freebin;
 }
 
+#ifndef __CHERI_PURE_CAPABILITY__
 /* Allocate chunk and prepend remainder with chunk in successor base. */
 static void* prepend_alloc(mstate m, char* newbase, char* oldbase,
                            size_t nb) {
@@ -2367,6 +2368,7 @@ static void* prepend_alloc(mstate m, char* newbase, char* oldbase,
   check_malloced_chunk(m, chunk2mem(p), nb);
   return chunk2mem(p);
 }
+#endif /* !__CHERI_PURE_CAPABILITY__ */
 
 /* Add a segment to hold a new noncontiguous region */
 static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
@@ -2514,6 +2516,7 @@ static void* sys_alloc(mstate m, size_t nb) {
     }
 
     else {
+#ifndef __CHERI_PURE_CAPABILITY__
       /* Try to merge with an existing segment */
       msegmentptr sp = &m->seg;
       /* Only consider most recent segment if traversal suppressed */
@@ -2541,8 +2544,11 @@ static void* sys_alloc(mstate m, size_t nb) {
           return prepend_alloc(m, tbase, oldbase, nb);
         }
         else
+#endif /* !__CHERI_PURE_CAPABILITY__ */
           add_segment(m, tbase, tsize, mmap_flag);
+#ifndef __CHERI_PURE_CAPABILITY__
       }
+#endif /* !__CHERI_PURE_CAPABILITY__ */
     }
 
     if (nb < m->topsize) { /* Allocate from new or extended top space */

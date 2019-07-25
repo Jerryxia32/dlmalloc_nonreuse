@@ -2255,7 +2255,6 @@ static void internal_malloc_stats(mstate m) {
 
 /* Relays to internal calls to malloc/free from realloc, memalign etc */
 
-#define internal_malloc(m, b) dlmalloc(b)
 #define internal_free(m, mem) dlfree(mem)
 
 /* -----------------------  Direct-mmapping chunks ----------------------- */
@@ -2888,7 +2887,7 @@ static void* tmalloc_small(mstate m, size_t nb) {
   return 0;
 }
 
-void* dlmalloc(size_t bytes) {
+static void* internal_malloc(mstate m, size_t bytes) {
   /*
      Basic algorithm:
      If a small request (< 256 bytes minus per-chunk overhead):
@@ -2916,7 +2915,7 @@ void* dlmalloc(size_t bytes) {
   ensure_initialization(); /* initialize in sys_alloc if not using locks */
 #endif
 
-  if (!PREACTION(gm)) {
+  if (!PREACTION(m)) {
     void* mem;
     size_t nb;
     if (bytes <= MAX_SMALL_REQUEST) {
@@ -2924,22 +2923,22 @@ void* dlmalloc(size_t bytes) {
       binmap_t smallbits;
       nb = (bytes < MIN_REQUEST)? MIN_CHUNK_SIZE : pad_request(bytes);
       idx = small_index(nb);
-      smallbits = gm->smallmap >> idx;
+      smallbits = m->smallmap >> idx;
 
       if ((smallbits & 0x3U) != 0) { /* Remainderless fit to a smallbin. */
         mchunkptr b, p;
         idx += ~smallbits & 1;       /* Uses next bin if idx empty */
-        b = smallbin_at(gm, idx);
+        b = smallbin_at(m, idx);
         p = b->fd;
         assert(chunksize(p) == small_index2size(idx));
-        unlink_first_small_chunk(gm, b, p, idx);
-        set_inuse_and_pinuse(gm, p, small_index2size(idx));
+        unlink_first_small_chunk(m, b, p, idx);
+        set_inuse_and_pinuse(m, p, small_index2size(idx));
         mem = chunk2mem(p);
-        check_malloced_chunk(gm, mem, nb);
+        check_malloced_chunk(m, mem, nb);
         goto postaction;
       }
 
-      else if (nb > gm->dvsize) {
+      else if (nb > m->dvsize) {
         if (smallbits != 0) { /* Use chunk in next nonempty smallbin */
           mchunkptr b, p, r;
           size_t rsize;
@@ -2947,27 +2946,27 @@ void* dlmalloc(size_t bytes) {
           binmap_t leftbits = (smallbits << idx) & left_bits(idx2bit(idx));
           binmap_t leastbit = least_bit(leftbits);
           compute_bit2idx(leastbit, i);
-          b = smallbin_at(gm, i);
+          b = smallbin_at(m, i);
           p = b->fd;
           assert(chunksize(p) == small_index2size(i));
-          unlink_first_small_chunk(gm, b, p, i);
+          unlink_first_small_chunk(m, b, p, i);
           rsize = small_index2size(i) - nb;
           /* Fit here cannot be remainderless if 4byte sizes */
           if (SIZE_T_SIZE != 4 && rsize < MIN_CHUNK_SIZE)
-            set_inuse_and_pinuse(gm, p, small_index2size(i));
+            set_inuse_and_pinuse(m, p, small_index2size(i));
           else {
-            set_size_and_pinuse_of_inuse_chunk(gm, p, nb);
+            set_size_and_pinuse_of_inuse_chunk(m, p, nb);
             r = chunk_plus_offset(p, nb);
             set_size_and_pinuse_of_free_chunk(r, rsize);
-            replace_dv(gm, r, rsize);
+            replace_dv(m, r, rsize);
           }
           mem = chunk2mem(p);
-          check_malloced_chunk(gm, mem, nb);
+          check_malloced_chunk(m, mem, nb);
           goto postaction;
         }
 
-        else if (gm->treemap != 0 && (mem = tmalloc_small(gm, nb)) != 0) {
-          check_malloced_chunk(gm, mem, nb);
+        else if (m->treemap != 0 && (mem = tmalloc_small(m, nb)) != 0) {
+          check_malloced_chunk(m, mem, nb);
           goto postaction;
         }
       }
@@ -2976,45 +2975,45 @@ void* dlmalloc(size_t bytes) {
       nb = MAX_SIZE_T; /* Too big to allocate. Force failure (in sys alloc) */
     else {
       nb = pad_request(bytes);
-      if (gm->treemap != 0 && (mem = tmalloc_large(gm, nb)) != 0) {
-        check_malloced_chunk(gm, mem, nb);
+      if (m->treemap != 0 && (mem = tmalloc_large(m, nb)) != 0) {
+        check_malloced_chunk(m, mem, nb);
         goto postaction;
       }
     }
 
-    if (nb <= gm->dvsize) {
-      size_t rsize = gm->dvsize - nb;
-      mchunkptr p = gm->dv;
+    if (nb <= m->dvsize) {
+      size_t rsize = m->dvsize - nb;
+      mchunkptr p = m->dv;
       if (rsize >= MIN_CHUNK_SIZE) { /* split dv */
-        mchunkptr r = gm->dv = chunk_plus_offset(p, nb);
-        gm->dvsize = rsize;
+        mchunkptr r = m->dv = chunk_plus_offset(p, nb);
+        m->dvsize = rsize;
         set_size_and_pinuse_of_free_chunk(r, rsize);
-        set_size_and_pinuse_of_inuse_chunk(gm, p, nb);
+        set_size_and_pinuse_of_inuse_chunk(m, p, nb);
       }
       else { /* exhaust dv */
-        size_t dvs = gm->dvsize;
-        gm->dvsize = 0;
-        gm->dv = 0;
-        set_inuse_and_pinuse(gm, p, dvs);
+        size_t dvs = m->dvsize;
+        m->dvsize = 0;
+        m->dv = 0;
+        set_inuse_and_pinuse(m, p, dvs);
       }
       mem = chunk2mem(p);
-      check_malloced_chunk(gm, mem, nb);
+      check_malloced_chunk(m, mem, nb);
       goto postaction;
     }
 
-    else if (nb < gm->topsize) { /* Split top */
-      size_t rsize = gm->topsize -= nb;
-      mchunkptr p = gm->top;
-      mchunkptr r = gm->top = chunk_plus_offset(p, nb);
+    else if (nb < m->topsize) { /* Split top */
+      size_t rsize = m->topsize -= nb;
+      mchunkptr p = m->top;
+      mchunkptr r = m->top = chunk_plus_offset(p, nb);
       r->head = rsize | PINUSE_BIT;
-      set_size_and_pinuse_of_inuse_chunk(gm, p, nb);
+      set_size_and_pinuse_of_inuse_chunk(m, p, nb);
       mem = chunk2mem(p);
-      check_top_chunk(gm, gm->top);
-      check_malloced_chunk(gm, mem, nb);
+      check_top_chunk(m, m->top);
+      check_malloced_chunk(m, mem, nb);
       goto postaction;
     }
 
-    mem = sys_alloc(gm, nb);
+    mem = sys_alloc(m, nb);
 
   postaction:
     ;
@@ -3026,12 +3025,20 @@ void* dlmalloc(size_t bytes) {
       clear_cdirty(ret);
       clear_pdirty(theNext);
     }
-    POSTACTION(gm);
+    POSTACTION(m);
     UTRACE(0, bytes, mem);
     return mem;
   }
 
   return 0;
+}
+
+void* dlmalloc(size_t bytes) {
+#ifdef __CHERI_PURE_CAPABILITY__
+  bytes = __builtin_cheri_round_representable_length(bytes);
+#endif
+
+  return internal_malloc(gm, bytes);
 }
 
 /* ---------------------------- free --------------------------- */

@@ -1157,6 +1157,9 @@ static int has_segment_link(mstate m, msegmentptr ss) {
 #ifndef __CHERI_PURE_CAPABILITY__
 #define	unbound_ptr(m, mem)	(mem)
 #else
+#if FOOTERS
+#error We need gm when calling in free() and realloc() so can't use FOOTERS.
+#endif
 static inline void *unbound_ptr(mstate m, void *mem)
 {
 	msegmentptr sp;

@@ -1150,6 +1150,30 @@ static int has_segment_link(mstate m, msegmentptr ss) {
   }
 }
 
+/*
+ * Given a memory allocation, return a pointer to it bounded to the
+ * segment it was allocated from.
+ */
+#ifndef __CHERI_PURE_CAPABILITY__
+#define	unbound_ptr(m, mem)	(mem)
+#else
+static inline void *unbound_ptr(mstate m, void *mem)
+{
+	msegmentptr sp;
+	/*
+	 * Make sure we're inbounds.  Otherwise our address might match
+	 * the wrong segment.
+	 */
+	if (__builtin_cheri_offset_get(mem) < 0 ||
+	    __builtin_cheri_offset_get(mem) >= __builtin_cheri_length_get(mem))
+		return NULL;
+	sp = segment_holding(m, mem);
+	if (sp == NULL)
+		return NULL;
+	return sp->base + ((char *)mem - (char *)sp->base);
+}
+#endif
+
 #define should_trim(M,s)  ((s) > (M)->trim_check)
 
 /*
@@ -3201,7 +3225,7 @@ shadow_clear(void* start, size_t size) {
 void
 dlfree(void* mem) {
   if(mem != 0) {
-    mchunkptr p  = mem2chunk(mem);
+    mchunkptr p  = mem2chunk(unbound_ptr(gm, mem));
 #if FOOTERS
     mstate fm = get_mstate_for(p);
     if(!ok_magic(fm)) {
@@ -3530,7 +3554,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 #endif /* REALLOC_ZERO_BYTES_FREES */
   else {
     size_t nb = request2size(bytes);
-    mchunkptr oldp = mem2chunk(oldmem);
+    mchunkptr oldp = mem2chunk(unbound_ptr(gm, oldmem));
 #if ! FOOTERS
     mstate m = gm;
 #else /* FOOTERS */
@@ -3657,10 +3681,14 @@ int dlmallopt(int param_number, int value) {
 }
 
 size_t dlmalloc_usable_size(void* mem) {
+#ifndef __CHERI_PURE_CAPBILITY__
   if (mem != 0) {
     mchunkptr p = mem2chunk(mem);
     if (is_inuse(p))
       return chunksize(p) - overhead_for(p);
   }
   return 0;
+#else
+  return __builtin_cheri_length_get(mem);
+#endif
 }

@@ -191,12 +191,11 @@ typedef struct {
 #define CHUNK_ALIGN_MASK    (MALLOC_ALIGNMENT - SIZE_T_ONE)
 
 /* True if address a has acceptable alignment */
-#define is_aligned(A)       (((size_t)((A)) & (CHUNK_ALIGN_MASK)) == 0)
+#define is_aligned(A)       __builtin_is_aligned((A), MALLOC_ALIGNMENT)
 
 /* the number of bytes to offset an address to align it */
 #define align_offset(A)\
- ((((size_t)(A) & CHUNK_ALIGN_MASK) == 0)? 0 :\
-  ((MALLOC_ALIGNMENT - ((size_t)(A) & CHUNK_ALIGN_MASK)) & CHUNK_ALIGN_MASK))
+  (__builtin_align_up((A), MALLOC_ALIGNMENT) - (A))
 
 /* -------------------------- MMAP preliminaries ------------------------- */
 
@@ -1101,13 +1100,11 @@ static struct malloc_state _gm_;
 
 /* page-align a size */
 #define page_align(S)\
- (((S) + (mparams.page_size - SIZE_T_ONE)) & ~(mparams.page_size - SIZE_T_ONE))
+  __builtin_align_up((S), mparams.page_size)
 
 /* granularity-align a size */
 #define granularity_align(S)\
-  (((S) + (mparams.granularity - SIZE_T_ONE))\
-   & ~(mparams.granularity - SIZE_T_ONE))
-
+  __builtin_align_up((S), mparams.granularity)
 
 #define mmap_align(S) page_align(S)
 
@@ -1115,9 +1112,9 @@ static struct malloc_state _gm_;
 #define SYS_ALLOC_PADDING (TOP_FOOT_SIZE + MALLOC_ALIGNMENT)
 
 #define is_page_aligned(S)\
-   (((size_t)(S) & (mparams.page_size - SIZE_T_ONE)) == 0)
+  __builtin_is_aligned((S), mparams.page_size)
 #define is_granularity_aligned(S)\
-   (((size_t)(S) & (mparams.granularity - SIZE_T_ONE)) == 0)
+  __builtin_is_aligned((S), mparams.granularity)
 
 /*  True if segment S holds address A */
 #define segment_holds(S, A)\
@@ -3408,7 +3405,7 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
       mchunkptr p = mem2chunk(mem);
       if (PREACTION(m))
         return 0;
-      if ((((size_t)(mem)) & (alignment - 1)) != 0) { /* misaligned */
+      if (!__builtin_is_aligned(mem, alignment)) { /* misaligned */
         /*
           Find an aligned spot inside chunk.  Since we need to give
           back leading space in a chunk of at least MIN_CHUNK_SIZE, if
@@ -3417,9 +3414,7 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
           We've allocated enough total room so that this is always
           possible.
         */
-        char* br = (char*)mem2chunk((size_t)(((size_t)((char*)mem + alignment -
-                                                       SIZE_T_ONE)) &
-                                             -alignment));
+        char* br = (char*)mem2chunk(__builtin_align_up(mem, alignment));
         char* pos = ((size_t)(br - (char*)(p)) >= MIN_CHUNK_SIZE)?
           br : br+alignment;
         mchunkptr newp = (mchunkptr)pos;

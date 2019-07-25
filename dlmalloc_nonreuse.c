@@ -62,6 +62,9 @@
 #endif
 #define DEBUG 0
 #endif /* DEBUG */
+#ifdef __CHERI_PURE_CAPABILITY__
+#include <machine/cherireg.h>
+#endif /* __CHERI_PURE_CAPABILITY__ */
 #if !defined(LACKS_TIME_H)
 #include <time.h>        /* for magic initialization */
 #endif /* LACKS_TIME_H */
@@ -1149,6 +1152,20 @@ static int has_segment_link(mstate m, msegmentptr ss) {
       return 0;
   }
 }
+
+/*
+ * Bound a memory allocation and remove unneeded permissions.
+ */
+#ifndef __CHERI_PURE_CAPABILITY__
+#define	bound_ptr(mem, bytes)	(mem)
+#else
+static inline void *bound_ptr(void *mem, size_t bytes)
+{
+	return __builtin_cheri_perms_and(
+	    __builtin_cheri_bounds_set(mem, bytes),
+	    CHERI_PERMS_USERSPACE_DATA & ~CHERI_PERM_CHERIABI_VMMAP);
+}
+#endif
 
 /*
  * Given a memory allocation, return a pointer to it bounded to the
@@ -3038,7 +3055,7 @@ void* dlmalloc(size_t bytes) {
   bytes = __builtin_cheri_round_representable_length(bytes);
 #endif
 
-  return internal_malloc(gm, bytes);
+  return bound_ptr(internal_malloc(gm, bytes), bytes);
 }
 
 /* ---------------------------- free --------------------------- */
@@ -3551,6 +3568,9 @@ static void internal_inspect_all(mstate m,
 
 void* dlrealloc(void* oldmem, size_t bytes) {
   void* mem = 0;
+#ifdef __CHERI_PURE_CAPABILITY__
+  bytes = __builtin_cheri_round_representable_length(bytes);
+#endif
   if (oldmem == 0) {
     mem = dlmalloc(bytes);
   }
@@ -3590,7 +3610,11 @@ void* dlrealloc(void* oldmem, size_t bytes) {
         mem = internal_malloc(m, bytes);
         if (mem != 0) {
           size_t oc = chunksize(oldp) - overhead_for(oldp);
-          memcpy(mem, oldmem, (oc < bytes)? oc : bytes);
+	  /*
+	   * CHERI: Use chunk2mem(oldp) as the source because oc might be
+	   * longer than the length of oldmem.
+	   */
+          memcpy(mem, chunk2mem(oldp), (oc < bytes)? oc : bytes);
           internal_free(m, oldmem);
         }
       }
@@ -3600,11 +3624,14 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 #endif
     UTRACE(oldmem, bytes, mem);
   }
-  return mem;
+  return bound_ptr(mem, bytes);
 }
 
 int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   void* mem = 0;
+#ifdef __CHERI_PURE_CAPABILITY__
+  bytes = __builtin_cheri_round_representable_length(bytes);
+#endif
   if (alignment == MALLOC_ALIGNMENT)
     mem = dlmalloc(bytes);
   else {
@@ -3621,7 +3648,7 @@ int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   if (mem == 0)
     return ENOMEM;
   else {
-    *pp = mem;
+    *pp = bound_ptr(mem, bytes);
     return 0;
   }
 }

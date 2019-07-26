@@ -1161,47 +1161,6 @@ static int has_segment_link(mstate m, msegmentptr ss) {
   }
 }
 
-/*
- * Bound a memory allocation and remove unneeded permissions.
- */
-#ifndef __CHERI_PURE_CAPABILITY__
-#define	bound_ptr(mem, bytes)	(mem)
-#else
-static inline void *bound_ptr(void *mem, size_t bytes)
-{
-	return __builtin_cheri_perms_and(
-	    __builtin_cheri_bounds_set(mem, bytes),
-	    CHERI_PERMS_USERSPACE_DATA & ~CHERI_PERM_CHERIABI_VMMAP);
-}
-#endif
-
-/*
- * Given a memory allocation, return a pointer to it bounded to the
- * segment it was allocated from.
- */
-#ifndef __CHERI_PURE_CAPABILITY__
-#define	unbound_ptr(m, mem)	(mem)
-#else
-#if FOOTERS
-#error We need gm when calling in free() and realloc() so can't use FOOTERS.
-#endif
-static inline void *unbound_ptr(mstate m, void *mem)
-{
-	msegmentptr sp;
-	/*
-	 * Make sure we're inbounds.  Otherwise our address might match
-	 * the wrong segment.
-	 */
-	if (__builtin_cheri_offset_get(mem) < 0 ||
-	    __builtin_cheri_offset_get(mem) >= __builtin_cheri_length_get(mem))
-		return NULL;
-	sp = segment_holding(m, mem);
-	if (sp == NULL)
-		return NULL;
-	return sp->base + ((char *)mem - (char *)sp->base);
-}
-#endif
-
 #define should_trim(M,s)  ((s) > (M)->trim_check)
 
 /*
@@ -1252,6 +1211,56 @@ static inline void *unbound_ptr(mstate m, void *mem)
 #define USAGE_ERROR_ACTION(m,p) ABORT
 #endif /* USAGE_ERROR_ACTION */
 
+/* --------------------------- CHERI support ----------------------------- */
+
+/*
+ * Bound a memory allocation and remove unneeded permissions.
+ */
+#ifndef __CHERI_PURE_CAPABILITY__
+#define	bound_ptr(mem, bytes)	(mem)
+#else
+static inline void *bound_ptr(void *mem, size_t bytes)
+{
+	void* ptr;
+
+	ptr = __builtin_cheri_perms_and(
+	    __builtin_cheri_bounds_set(mem, bytes),
+	    CHERI_PERMS_USERSPACE_DATA & ~CHERI_PERM_CHERIABI_VMMAP);
+	mem2chunk(mem)->pad = ptr;
+	return ptr;
+}
+#endif
+
+/*
+ * Given a memory allocation, return a pointer to it bounded to the
+ * segment it was allocated from.
+ */
+#ifndef __CHERI_PURE_CAPABILITY__
+#define	unbound_ptr(m, mem)	(mem)
+#else
+#if FOOTERS
+#error We need gm when calling in free() and realloc() so can't use FOOTERS.
+#endif
+static inline void *unbound_ptr(mstate m, void *mem)
+{
+	msegmentptr sp;
+	void* ptr;
+	/*
+	 * Make sure we're inbounds.  Otherwise our address might match
+	 * the wrong segment.
+	 */
+	if (__builtin_cheri_offset_get(mem) < 0 ||
+	    __builtin_cheri_offset_get(mem) >= __builtin_cheri_length_get(mem))
+		USAGE_ERROR_ACTION(m, mem);
+	sp = segment_holding(m, mem);
+	if (sp == NULL)
+		USAGE_ERROR_ACTION(m, mem);
+	ptr = sp->base + ((char *)mem - (char *)sp->base);
+	if (ptr != mem2chunk(ptr)->pad)
+		USAGE_ERROR_ACTION(m, mem);
+	return ptr;
+}
+#endif
 
 /* -------------------------- Debugging setup ---------------------------- */
 
@@ -3078,6 +3087,9 @@ dlfree_internal(void* mem) {
 
   if (mem != 0) {
     mchunkptr p  = mem2chunk(mem);
+#ifdef __CHERI_PURE_CAPABILITY__
+    p->pad = NULL;
+#endif
 #if FOOTERS
     mstate fm = get_mstate_for(p);
     if (!ok_magic(fm)) {

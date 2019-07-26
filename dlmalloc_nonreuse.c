@@ -834,9 +834,17 @@ nextchunk-> +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 */
 
 struct malloc_tree_chunk {
-  /* The first four fields must be compatible with malloc_chunk */
+  /* The first four(five for CHERI) fields must be compatible with malloc_chunk */
   size_t                    prev_foot;
   size_t                    head;
+#ifdef __CHERI_PURE_CAPABILITY__
+  /*
+   * It is a documented requirement that struct malloc_chunk be a power
+   * of two in size.
+   * On 256-bit, there will be 16-bytes of padding before pad.
+   */
+  void* pad;
+#endif
   struct malloc_tree_chunk* fd;
   struct malloc_tree_chunk* bk;
 

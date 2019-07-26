@@ -605,6 +605,14 @@ static int pthread_init_lock (MLOCK_T *lk) {
 struct malloc_chunk {
   size_t               prev_foot;  /* Size of previous chunk (if free).  */
   size_t               head;       /* Size and inuse bits. */
+#ifdef __CHERI_PURE_CAPABILITY__
+  /*
+   * It is a documented requirement that struct malloc_chunk be a power
+   * of two in size.
+   * On 256-bit, there will be 16-bytes of padding before pad.
+   */
+  void* pad;
+#endif
   struct malloc_chunk* fd;         /* double links -- used only if free. */
   struct malloc_chunk* bk;
 };

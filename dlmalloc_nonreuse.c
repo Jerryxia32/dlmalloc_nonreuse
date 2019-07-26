@@ -647,8 +647,8 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
   ((MCHUNK_SIZE + CHUNK_ALIGN_MASK) & ~CHUNK_ALIGN_MASK)
 
 /* conversion from malloc headers to user pointers, and back */
-#define chunk2mem(p)        ((void*)((char*)(p)       + TWO_SIZE_T_SIZES))
-#define mem2chunk(mem)      ((mchunkptr)((char*)(mem) - TWO_SIZE_T_SIZES))
+#define chunk2mem(p)        ((void*)((char*)(p)       + __offsetof(struct malloc_chunk, fd)))
+#define mem2chunk(mem)      ((mchunkptr)((char*)(mem) - __offsetof(struct malloc_chunk, fd)))
 /* chunk associated with aligned address A */
 #define align_as_chunk(A)   (mchunkptr)((A) + align_offset(chunk2mem(A)))
 

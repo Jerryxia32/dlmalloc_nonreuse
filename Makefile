@@ -9,6 +9,9 @@ CFLAGS+=-mabi=purecap -msoft-float
 CFLAGS+=-std=c11
 CFLAGS+=-Wno-error=unused-function
 
+CFLAGS+=-DCAPREVOKE
+LDFLAGS+=-lcheri_caprevoke
+
 CFLAGS+=-DSAFE_FREEBUF
 
 ifeq ($(DEBUG),1)

@@ -711,6 +711,7 @@ extern "C" {
 #define dlmalloc_footprint_limit malloc_footprint_limit
 #define dlmalloc_set_footprint_limit malloc_set_footprint_limit
 #define dlmalloc_inspect_all   malloc_inspect_all
+#define dlmalloc_revoke        malloc_revoke
 #endif /* USE_DL_PREFIX */
 
 /*
@@ -971,6 +972,8 @@ DLMALLOC_EXPORT void  dlmalloc_stats(void);
   assert(malloc_usable_size(p) >= 256);
 */
 size_t dlmalloc_usable_size(void*);
+
+DLMALLOC_EXPORT void  dlmalloc_revoke(void);
 
 #ifdef __cplusplus
 }  /* end of extern "C" */

@@ -64,6 +64,10 @@
 #endif /* DEBUG */
 #ifdef __CHERI_PURE_CAPABILITY__
 #include <machine/cherireg.h>
+#ifdef CAPREVOKE
+#include <sys/caprevoke.h>
+#include <cheri/caprevoke.h>
+#endif /* CAPREVOKE */
 #endif /* __CHERI_PURE_CAPABILITY__ */
 #if !defined(LACKS_TIME_H)
 #include <time.h>        /* for magic initialization */
@@ -922,6 +926,9 @@ struct malloc_segment {
   size_t       size;             /* allocated size */
   struct malloc_segment* next;   /* ptr to next segment */
   flag_t       sflags;           /* mmap and extern flag */
+#ifdef CAPREVOKE
+  void*        shadow;
+#endif
 };
 
 #define is_mmapped_segment(S)  ((S)->sflags & USE_MMAP_BIT)
@@ -2473,6 +2480,10 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
   m->seg.size = tsize;
   m->seg.sflags = mmapped;
   m->seg.next = ss;
+#ifdef CAPREVOKE
+  if (caprevoke_shadow(CAPREVOKE_SHADOW_NOVMMAP, tbase, &m->seg.shadow) != 0)
+    ABORT;
+#endif
 
   /* Insert trailing fenceposts */
   for (;;) {
@@ -2577,6 +2588,10 @@ static void* sys_alloc(mstate m, size_t nb) {
       m->seg.base = tbase;
       m->seg.size = tsize;
       m->seg.sflags = mmap_flag;
+#ifdef CAPREVOKE
+      if (caprevoke_shadow(CAPREVOKE_SHADOW_NOVMMAP, tbase, &m->seg.shadow) != 0)
+        ABORT;
+#endif
       m->magic = mparams.magic;
       m->release_checks = MAX_RELEASE_CHECK_RATE;
       init_bins(m);
@@ -3312,9 +3327,14 @@ dlfree(void* mem) {
 #ifdef __CHERI_PURE_CAPABILITY__
     /*
      * Replace the pointer to the allocation.  This allows us to catch
-     * double-free()s in unbound_ptr().
+     * double-free()s in unbound_ptr().  In the CAPREVOKE case, it also
+     * allows us to cache the shadow pointer for later use.
      */
+#ifdef CAPREVOKE
+    p->pad = sp->shadow;
+#else
     p->pad = NULL;
+#endif
 #endif
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
@@ -3358,43 +3378,57 @@ dlfree(void* mem) {
       }
       insert_freebuf_chunk(fm, p);
       if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT)) {
-#if SWEEP_STATS
-        fm->sweepTimes++;
-        fm->sweptBytes += fm->footprint;
-#endif // SWEEP_STATS
-        mchunkptr freebin = &fm->freebufbin;
-        mchunkptr thePtr = freebin->fd;
-        while(thePtr != freebin) {
-#ifndef __CHERI_PURE_CAPABILITY__
-          shadow_paint(thePtr, chunksize(thePtr));
-#endif
-          thePtr = thePtr->fd;
-        }
-        while(freebin->fd != freebin) {
-          mchunkptr ret = freebin->fd;
-          unlink_first_freebuf_chunk(fm, freebin, ret);
-          size_t theSize = chunksize(ret);
-#ifndef __CHERI_PURE_CAPABILITY__
-          shadow_clear(ret, theSize);
-#endif
-          mchunkptr theNext = chunk_plus_offset(ret, theSize);
-          if(!is_mmapped(ret)) {
-            assert(cdirty(ret));
-            assert(pdirty(theNext));
-            clear_cdirty(ret);
-            clear_pdirty(theNext);
-          }
-          // Have to do free_internal after unlinking, otherwise the circular
-          // list of freebufbin will get corrupted.
-          dlfree_internal(chunk2mem(ret));
-        }
+	dlmalloc_revoke();
       }
       POSTACTION(fm);
     }
   }
-#if !FOOTERS
-#undef fm
-#endif /* FOOTERS */
+}
+
+void
+dlmalloc_revoke(void) {
+#if SWEEP_STATS
+  gm->sweepTimes++;
+  gm->sweptBytes += gm->footprint;
+#endif // SWEEP_STATS
+  mchunkptr freebin = &gm->freebufbin;
+  for (mchunkptr thePtr = freebin->fd; thePtr != freebin; thePtr = thePtr->fd) {
+#ifndef __CHERI_PURE_CAPABILITY__
+    shadow_paint(thePtr, chunksize(thePtr));
+#else
+#ifdef CAPREVOKE
+    vaddr_t addr = __builtin_cheri_address_get(chunk2mem(thePtr));
+    caprev_shadow_nomap_set_raw(thePtr->pad, addr, addr + chunksize(thePtr));
+#endif
+#endif
+  }
+
+  struct caprevoke_stats crst;
+  caprevoke(CAPREVOKE_LAST_PASS|CAPREVOKE_IGNORE_START, 0, &crst);
+
+  for (mchunkptr thePtr = freebin->fd; thePtr != freebin; thePtr = freebin->fd) {
+    unlink_first_freebuf_chunk(gm, freebin, thePtr);
+    size_t theSize = chunksize(thePtr);
+#ifndef __CHERI_PURE_CAPABILITY__
+    shadow_clear(thePtr, theSize);
+#else
+#ifdef CAPREVOKE
+    vaddr_t addr = __builtin_cheri_address_get(chunk2mem(thePtr));
+    caprev_shadow_nomap_clear_raw(thePtr->pad, addr, addr + chunksize(thePtr));
+#endif
+#endif
+    mchunkptr theNext = chunk_plus_offset(thePtr, theSize);
+    if(!is_mmapped(thePtr)) {
+      assert(cdirty(thePtr));
+      assert(pdirty(theNext));
+      clear_cdirty(thePtr);
+      clear_pdirty(theNext);
+    }
+
+    // Have to do free_internal after unlinking, otherwise the circular
+    // list of freebufbin will get corrupted.
+    dlfree_internal(chunk2mem(thePtr));
+  }
 }
 
 void* dlcalloc(size_t n_elements, size_t elem_size) {

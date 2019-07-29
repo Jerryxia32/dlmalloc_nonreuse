@@ -1237,12 +1237,12 @@ static inline void *bound_ptr(void *mem, size_t bytes)
  * segment it was allocated from.
  */
 #ifndef __CHERI_PURE_CAPABILITY__
-#define	unbound_ptr(m, mem)	(mem)
+#define	unbound_ptr(m, spp, mem)	(mem)
 #else
 #if FOOTERS
 #error We need gm when calling in free() and realloc() so can't use FOOTERS.
 #endif
-static inline void *unbound_ptr(mstate m, void *mem)
+static inline void *unbound_ptr(mstate m, msegmentptr *spp, void *mem)
 {
 	msegmentptr sp;
 	void* ptr;
@@ -1257,6 +1257,8 @@ static inline void *unbound_ptr(mstate m, void *mem)
 	sp = segment_holding(m, mem);
 	if (sp == NULL)
 		USAGE_ERROR_ACTION(m, mem);
+	if (spp != NULL)
+		*spp = sp;
 	ptr = sp->base + ((char *)mem - (char *)sp->base);
 	if (ptr != mem2chunk(ptr)->pad)
 		USAGE_ERROR_ACTION(m, mem);
@@ -3274,7 +3276,8 @@ shadow_clear(void* start, size_t size) {
 void
 dlfree(void* mem) {
   if(mem != 0) {
-    mchunkptr p  = mem2chunk(unbound_ptr(gm, mem));
+    msegmentptr sp;
+    mchunkptr p  = mem2chunk(unbound_ptr(gm, &sp, mem));
 #if FOOTERS
     mstate fm = get_mstate_for(p);
     if(!ok_magic(fm)) {
@@ -3606,7 +3609,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 #endif /* REALLOC_ZERO_BYTES_FREES */
   else {
     size_t nb = request2size(bytes);
-    mchunkptr oldp = mem2chunk(unbound_ptr(gm, oldmem));
+    mchunkptr oldp = mem2chunk(unbound_ptr(gm, NULL, oldmem));
 #if ! FOOTERS
     mstate m = gm;
 #else /* FOOTERS */

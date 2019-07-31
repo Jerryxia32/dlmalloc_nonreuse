@@ -2451,7 +2451,7 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
   msegmentptr oldsp = segment_holding(m, old_top);
   char* old_end = oldsp->base + oldsp->size;
   size_t ssize = pad_request(sizeof(struct malloc_segment));
-  char* rawsp = old_end - (ssize + FOUR_SIZE_T_SIZES + CHUNK_ALIGN_MASK);
+  char* rawsp = old_end - (ssize + CHUNK_HEADER_OFFSET + TWO_SIZE_T_SIZES + CHUNK_ALIGN_MASK);
   size_t offset = align_offset(chunk2mem(rawsp));
   char* asp = rawsp + offset;
   char* csp = (asp < (old_top + MIN_CHUNK_SIZE))? old_top : asp;

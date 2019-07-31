@@ -1655,6 +1655,12 @@ static int change_mparam(int param_number, int value) {
 static void
 do_check_freebuf_corrupt(mstate m, mchunkptr p) {
   mchunkptr freebinptr = &m->freebufbin;
+  /*
+   * XXX: before anything has been free'd, first freebin entry points to
+   * NULL.  Perhaps more initilization is required...
+   */
+  if (freebinptr->fd->fd == NULL)
+    return;
   for(mchunkptr iter=freebinptr->fd; iter!=freebinptr; iter=iter->fd) {
     assert(p != iter);
   }

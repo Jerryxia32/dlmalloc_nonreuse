@@ -2935,6 +2935,8 @@ static void* tmalloc_small(mstate m, size_t nb) {
   return 0;
 }
 
+static void* internal_memalign(mstate m, size_t alignment, size_t bytes);
+
 static void* internal_malloc(mstate m, size_t bytes) {
   /*
      Basic algorithm:
@@ -3082,11 +3084,20 @@ static void* internal_malloc(mstate m, size_t bytes) {
 }
 
 void* dlmalloc(size_t bytes) {
+  void *mem;
 #ifdef __CHERI_PURE_CAPABILITY__
   bytes = __builtin_cheri_round_representable_length(bytes);
-#endif
+  size_t mask = __builtin_cheri_representable_alignment_mask(bytes);
+  size_t align = 1 + ~mask;
 
-  return bound_ptr(internal_malloc(gm, bytes), bytes);
+  if (mask != MAX_SIZE_T && align > MALLOC_ALIGNMENT) {
+    size_t align = 1 + ~mask;
+    mem = internal_memalign(gm, align, bytes);
+  } else
+#endif
+    mem = internal_malloc(gm, bytes);
+
+  return bound_ptr(mem, bytes);
 }
 
 /* ---------------------------- free --------------------------- */

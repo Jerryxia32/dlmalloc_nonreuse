@@ -3309,6 +3309,13 @@ dlfree(void* mem) {
 #else // FOOTERS
 #define fm gm
 #endif // FOOTERS
+#ifdef __CHERI_PURE_CAPABILITY__
+    /*
+     * Replace the pointer to the allocation.  This allows us to catch
+     * double-free()s in unbound_ptr().
+     */
+    p->pad = NULL;
+#endif
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);

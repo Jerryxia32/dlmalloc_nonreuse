@@ -1,5 +1,7 @@
-CC?=clang
-LD?=ld.lld
+SDKBIN?=/home/bed22/git/llvm-project-cheri/Build/bin
+SDKROOT?=/home/bed22/bsdtools/cheribsd-root/cheribsd128
+CC=${SDKBIN}/clang -target cheri-unknown-freebsd --sysroot=${SDKROOT}
+LD=${CC} -fuse-ld=lld -B ${SDKBIN}
 DEBUG?=1
 
 CFLAGS=-Wall -Werror
@@ -50,7 +52,7 @@ dlmalloc_test.o: dlmalloc_test.c
 	$(CC) $(CFLAGS) -DUSE_DL_PREFIX -c $< -o $@
 
 dlmalloc_test: dlmalloc_nonreuse-dlprefix.o dlmalloc_test.o
-	$(LD) $(CFLAGS) -static dlmalloc_nonreuse-dlprefix.o dlmalloc_test.o -o $@
+	$(LD) $(CFLAGS) $(LDFLAGS) -static dlmalloc_nonreuse-dlprefix.o dlmalloc_test.o -o $@
 
 clean:
 	rm -f dlmalloc_test *.o *.so

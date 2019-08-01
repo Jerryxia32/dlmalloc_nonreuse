@@ -678,6 +678,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
   use, unless mmapped, in which case both bits are cleared.
 
   CDIRTY_BIT indicates whether this freed chunk is dirty (not swept) or not.
+  PDIRTY_BIT indicates whether the previous chunk is in dirty.
 */
 
 #define PINUSE_BIT          (SIZE_T_ONE)
@@ -3315,10 +3316,10 @@ dlfree(void* mem) {
       fm->freeTimes++;
       fm->freeBytes += chunksize(p);
 #endif // SWEEP_STATS
+      check_freebuf_corrupt(fm, p);
       if(!is_mmapped(p)) {
         if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);
-          mchunkptr next = chunk_plus_offset(p, psize);
           if(pdirty(p)) {
             size_t prevsize = p->prev_foot;
             mchunkptr prev = chunk_minus_offset(p, prevsize);
@@ -3326,11 +3327,11 @@ dlfree(void* mem) {
             p = prev;
             if(RTCHECK(ok_address(fm, prev))) {
               unlink_freebuf_chunk(fm, p);
-            }
-            else
-              goto erroraction;
+            } else
+              CORRUPTION_ERROR_ACTION(fm);
           }
 
+          mchunkptr next = chunk_plus_offset(p, psize);
           if(RTCHECK(ok_next(p, next) && ok_pinuse(next))) {
             // Consolidate forward only with a non-dirty chunk.
             if(cdirty(next)) {
@@ -3343,18 +3344,12 @@ dlfree(void* mem) {
               set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
               set_pdirty(next);
             }
-
-            insert_freebuf_chunk(fm, p);
-            goto postaction;
-          }
-        }
-      } else {
-        insert_freebuf_chunk(fm, p);
-        goto postaction;
+          } else
+            CORRUPTION_ERROR_ACTION(fm);
+        } else
+          USAGE_ERROR_ACTION(fm, p);
       }
-    erroraction:
-      USAGE_ERROR_ACTION(fm, p);
-    postaction:
+      insert_freebuf_chunk(fm, p);
       if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT)) {
 #if SWEEP_STATS
         fm->sweepTimes++;

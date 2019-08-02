@@ -3800,7 +3800,7 @@ int dlmallopt(int param_number, int value) {
 }
 
 size_t dlmalloc_usable_size(void* mem) {
-#ifndef __CHERI_PURE_CAPBILITY__
+#ifndef __CHERI_PURE_CAPABILITY__
   if (mem != 0) {
     mchunkptr p = mem2chunk(mem);
     if (is_inuse(p))

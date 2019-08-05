@@ -3310,6 +3310,8 @@ shadow_clear(void* start, size_t size) {
 }
 #endif
 
+static void malloc_revoke_internal(void);
+
 void
 dlfree(void* mem) {
   if(mem != 0) {
@@ -3378,15 +3380,15 @@ dlfree(void* mem) {
       }
       insert_freebuf_chunk(fm, p);
       if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT)) {
-	dlmalloc_revoke();
+	malloc_revoke_internal();
       }
       POSTACTION(fm);
     }
   }
 }
 
-void
-dlmalloc_revoke(void) {
+static void
+malloc_revoke_internal(void) {
 #if SWEEP_STATS
   gm->sweepTimes++;
   gm->sweptBytes += gm->footprint;
@@ -3429,6 +3431,13 @@ dlmalloc_revoke(void) {
     // list of freebufbin will get corrupted.
     dlfree_internal(chunk2mem(thePtr));
   }
+}
+
+void
+dlmalloc_revoke(void) {
+  PREACTION(gm);
+  malloc_revoke_internal();
+  POSTACTION(gm);
 }
 
 void* dlcalloc(size_t n_elements, size_t elem_size) {

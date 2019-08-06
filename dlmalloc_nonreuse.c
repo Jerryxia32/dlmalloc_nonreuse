@@ -635,10 +635,16 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 
 #define MCHUNK_SIZE         (sizeof(mchunk))
 
+#ifdef SAFE_FREEBUF
+#define	CHUNK_HEADER_OFFSET	sizeof(struct malloc_chunk)
+#else
+#define	CHUNK_HEADER_OFFSET	__offsetof(struct malloc_chunk, fd)
+#endif
+
 #if FOOTERS
 #define CHUNK_OVERHEAD      (TWO_SIZE_T_SIZES)
 #else /* FOOTERS */
-#define CHUNK_OVERHEAD      (SIZE_T_SIZE)
+#define CHUNK_OVERHEAD      (CHUNK_HEADER_OFFSET)
 #endif /* FOOTERS */
 
 /* MMapped chunks need a second word of overhead ... */
@@ -647,15 +653,15 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define MMAP_FOOT_PAD       (FOUR_SIZE_T_SIZES)
 
 /* The smallest size we can malloc is an aligned minimal chunk */
+#ifdef SAFE_FREEBUF
+#define MIN_CHUNK_SIZE \
+  (((2 * MCHUNK_SIZE) + CHUNK_ALIGN_MASK) & ~CHUNK_ALIGN_MASK)
+#else
 #define MIN_CHUNK_SIZE\
   ((MCHUNK_SIZE + CHUNK_ALIGN_MASK) & ~CHUNK_ALIGN_MASK)
+#endif
 
 /* conversion from malloc headers to user pointers, and back */
-#ifdef SAFE_FREEBUF
-#define	CHUNK_HEADER_OFFSET	sizeof(struct malloc_chunk)
-#else
-#define	CHUNK_HEADER_OFFSET	__offsetof(struct malloc_chunk, fd)
-#endif
 #define chunk2mem(p)        ((void*)((char*)(p)       + CHUNK_HEADER_OFFSET))
 #define mem2chunk(mem)      ((mchunkptr)((char*)(mem) - CHUNK_HEADER_OFFSET))
 /* chunk associated with aligned address A */

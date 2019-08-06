@@ -3119,6 +3119,7 @@ void* dlmalloc(size_t bytes) {
 #endif
     mem = internal_malloc(gm, bytes);
 
+  assert(chunksize(mem2chunk(mem)) >= bytes + CHUNK_HEADER_OFFSET);
   return bound_ptr(mem, bytes);
 }
 

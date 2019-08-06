@@ -3429,7 +3429,14 @@ malloc_revoke_internal(void) {
   }
 
   struct caprevoke_stats crst;
-  caprevoke(CAPREVOKE_LAST_PASS|CAPREVOKE_IGNORE_START, 0, &crst);
+  uint64_t start_epoch;
+  caprevoke(CAPREVOKE_LAST_PASS|CAPREVOKE_IGNORE_START|CAPREVOKE_NO_WAIT_OK,
+	    0, &crst);
+  start_epoch = crst.epoch_init;
+  while (!caprevoke_epoch_clears(crst.epoch_fini, start_epoch)) {
+    caprevoke(CAPREVOKE_LAST_PASS, start_epoch, &crst);
+  }
+
 
   for (mchunkptr thePtr = freebin->fd; thePtr != freebin; thePtr = freebin->fd) {
     unlink_first_freebuf_chunk(gm, freebin, thePtr);

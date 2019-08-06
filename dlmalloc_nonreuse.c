@@ -3120,6 +3120,20 @@ void* dlmalloc(size_t bytes) {
     mem = internal_malloc(gm, bytes);
 
   assert(chunksize(mem2chunk(mem)) >= bytes + CHUNK_HEADER_OFFSET);
+#ifdef CAPREVOKE
+  /*
+   * Zero the memory to ensure we don't leak pointers to other parts
+   * of the allocation graph to a consumer.
+   *
+   * XXX: There are optimization opportunities here including:
+   *  - MPROT_QUARANTINE doing clearing.
+   *  - An efficent, ranged tag clearing instruction.
+   *  - Better tracking of the need to zero chunks to avoid zeroing
+   *    just-mmaped memory.
+   */
+  memset(mem, 0, bytes);
+#endif
+
   return bound_ptr(mem, bytes);
 }
 
@@ -3457,8 +3471,10 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
   mem = dlmalloc(req);
+#ifndef CAPREVOKE
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
+#endif
   return mem;
 }
 

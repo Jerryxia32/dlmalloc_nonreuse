@@ -1141,8 +1141,14 @@ static struct malloc_state _gm_;
   __builtin_align_up((S), mparams.page_size)
 
 /* granularity-align a size */
+#ifndef __CHERI_PURE_CAPABILITY__
 #define granularity_align(S)\
   __builtin_align_up((S), mparams.granularity)
+#else
+#define granularity_align(S) \
+  __builtin_cheri_round_representable_length(__builtin_align_up((S), \
+					     mparams.granularity))
+#endif
 
 #define mmap_align(S) page_align(S)
 

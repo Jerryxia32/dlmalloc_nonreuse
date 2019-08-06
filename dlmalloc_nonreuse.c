@@ -1270,13 +1270,9 @@ static inline void *unbound_ptr(mstate m, msegmentptr *spp, void *mem)
 {
 	msegmentptr sp;
 	void* ptr;
-	/*
-	 * Make sure we're inbounds.  Otherwise our address might match
-	 * the wrong segment.
-	 */
+
 	if (__builtin_cheri_tag_get(mem) != 1 ||
-	    __builtin_cheri_offset_get(mem) < 0 ||
-	    __builtin_cheri_offset_get(mem) >= __builtin_cheri_length_get(mem))
+	    __builtin_cheri_offset_get(mem) != 0)
 		USAGE_ERROR_ACTION(m, mem);
 	sp = segment_holding(m, mem);
 	if (sp == NULL)

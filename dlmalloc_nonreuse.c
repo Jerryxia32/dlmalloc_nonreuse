@@ -3697,6 +3697,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
   void* mem = 0;
 #ifdef __CHERI_PURE_CAPABILITY__
   bytes = __builtin_cheri_round_representable_length(bytes);
+  size_t mask = __builtin_cheri_representable_alignment_mask(bytes);
 #endif
   if (oldmem == 0) {
     return dlmalloc(bytes);
@@ -3726,7 +3727,15 @@ void* dlrealloc(void* oldmem, size_t bytes) {
     malloc_utrace_suspend++;
 #endif
     if (!PREACTION(m)) {
-      mchunkptr newp = try_realloc_chunk(m, oldp, nb);
+      mchunkptr newp = 0;
+#ifdef __CHERI_PURE_CAPABILITY__
+      /*
+       * Don't try to expand in place if the extended pointer won't be
+       * sufficently aligned.
+       */
+      if ((__builtin_cheri_base_get(oldmem) & ~mask) == 0)
+#endif
+        newp = try_realloc_chunk(m, oldp, nb);
       POSTACTION(m);
       if (newp != 0) {
         check_inuse_chunk(m, newp);
@@ -3735,7 +3744,15 @@ void* dlrealloc(void* oldmem, size_t bytes) {
           clear_pdirty(next_chunk(newp));
       }
       else {
-        mem = internal_malloc(m, bytes);
+#ifdef __CHERI_PURE_CAPABILITY__
+        size_t align = 1 + ~mask;
+
+        if (mask != MAX_SIZE_T && align > MALLOC_ALIGNMENT) {
+          size_t align = 1 + ~mask;
+          mem = internal_memalign(gm, align, bytes);
+        } else
+#endif
+          mem = internal_malloc(m, bytes);
         if (mem != 0) {
           size_t oc = chunksize(oldp) - overhead_for(oldp);
 	  /*

@@ -3500,10 +3500,13 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb) {
       newp = mmap_resize(m, p, nb);
     }
     else if (oldsize >= nb) {             /* already big enough */
-      /* If already big enough, we do not shrink.
+#if 0
+      /*
+       * If already big enough, we do not shrink.
        * We CANNOT shrink, because this chunk might have already been used to
        * create a chunk that spans across below and above the new upper bound,
        * which is not a subset of either the remainder or the shrinked chunk.
+       */
       size_t rsize = oldsize - nb;
       if (rsize >= MIN_CHUNK_SIZE) {      // Split off remainder.
         mchunkptr r = chunk_plus_offset(p, nb);
@@ -3511,8 +3514,9 @@ static mchunkptr try_realloc_chunk(mstate m, mchunkptr p, size_t nb) {
         set_inuse(m, r, rsize);
         dispose_chunk(m, r, rsize);
       }
-       */
+#else
       newp = p;
+#endif
     }
     else if (next == m->top) {  /* extend into top */
       if (oldsize + m->topsize > nb) {

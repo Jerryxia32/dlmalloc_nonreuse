@@ -3699,7 +3699,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
   bytes = __builtin_cheri_round_representable_length(bytes);
 #endif
   if (oldmem == 0) {
-    mem = dlmalloc(bytes);
+    return dlmalloc(bytes);
   }
   else if (bytes >= MAX_REQUEST) {
     MALLOC_FAILURE_ACTION;
@@ -3707,6 +3707,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
 #ifdef REALLOC_ZERO_BYTES_FREES
   else if (bytes == 0) {
     dlfree(oldmem);
+    return 0;
   }
 #endif /* REALLOC_ZERO_BYTES_FREES */
   else {

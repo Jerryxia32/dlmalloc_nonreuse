@@ -3291,7 +3291,7 @@ shadow_clear(void* start, size_t size) {
 }
 #endif
 
-static void malloc_revoke_internal(void);
+static void malloc_revoke_internal(const char *cause);
 
 void
 dlfree(void* mem) {
@@ -3352,10 +3352,12 @@ dlfree(void* mem) {
           USAGE_ERROR_ACTION(fm, p);
       }
       insert_freebuf_chunk(fm, p);
-      if(fm->freebufbytes > mparams.max_freebufbytes ||
-	 fm->freebufbytes >
-	 (size_t)(fm->footprint * mparams.max_freebuf_percent)) {
-	malloc_revoke_internal();
+      if (fm->freebufbytes > mparams.max_freebufbytes) {
+        malloc_revoke_internal("mparams.max_freebufbytes exceeded");
+      }
+      if (fm->freebufbytes >
+          (size_t)(fm->footprint * mparams.max_freebuf_percent)) {
+        malloc_revoke_internal("mparams.max_freebuf_percent exceeded");
       }
       POSTACTION(fm);
     }
@@ -3363,7 +3365,10 @@ dlfree(void* mem) {
 }
 
 static void
-malloc_revoke_internal(void) {
+malloc_revoke_internal(const char *reason) {
+#ifdef VERBOSE
+  printf("%s: %s\n", __func__, reason);
+#endif
 #if SWEEP_STATS
   gm->sweepTimes++;
   gm->sweptBytes += gm->footprint;
@@ -3418,7 +3423,7 @@ malloc_revoke_internal(void) {
 void
 dlmalloc_revoke(void) {
   PREACTION(gm);
-  malloc_revoke_internal();
+  malloc_revoke_internal(__func__);
   POSTACTION(gm);
 }
 

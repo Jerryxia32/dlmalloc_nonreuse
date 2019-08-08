@@ -1089,6 +1089,8 @@ struct malloc_params {
   size_t granularity;
   size_t mmap_threshold;
   size_t trim_threshold;
+  size_t max_freebufbytes;
+  double max_freebuf_percent;
   flag_t default_mflags;
 };
 
@@ -1569,6 +1571,8 @@ static int init_mparams(void) {
     mparams.mmap_threshold = DEFAULT_MMAP_THRESHOLD;
     mparams.trim_threshold = DEFAULT_TRIM_THRESHOLD;
     mparams.default_mflags = USE_LOCK_BIT|USE_MMAP_BIT|USE_NONCONTIGUOUS_BIT;
+    mparams.max_freebufbytes = DEFAULT_MAX_FREEBUFBYTES;
+    mparams.max_freebuf_percent = DEFAULT_FREEBUF_PERCENT;
 
     /* Set up lock for main malloc area */
     gm->mflags = mparams.default_mflags;
@@ -3348,7 +3352,9 @@ dlfree(void* mem) {
           USAGE_ERROR_ACTION(fm, p);
       }
       insert_freebuf_chunk(fm, p);
-      if(fm->freebufbytes > (size_t)(fm->footprint*DEFAULT_FREEBUF_PERCENT)) {
+      if(fm->freebufbytes > mparams.max_freebufbytes ||
+	 fm->freebufbytes >
+	 (size_t)(fm->footprint * mparams.max_freebuf_percent)) {
 	malloc_revoke_internal();
       }
       POSTACTION(fm);

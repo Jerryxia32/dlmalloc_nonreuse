@@ -448,13 +448,12 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define DEFAULT_GRANULARITY ((size_t)1U<<(PAGE_SHIFT+MALLOC_ALIGN_BITSHIFT))
 #define DEFAULT_MMAP_THRESHOLD (DEFAULT_GRANULARITY<<2U)
 
-// Override default non-reuse compile-time parameters here.
-//#define DEFAULT_FREEBUF_PERCENT ((double)0.04762)
-//#define DEFAULT_FREEBUF_PERCENT ((double)0.0909)
+#ifndef DEFAULT_FREEBUF_PERCENT
 #define DEFAULT_FREEBUF_PERCENT ((double)0.2)
-//#define DEFAULT_FREEBUF_PERCENT ((double)0.3333333)
-//#define DEFAULT_FREEBUF_PERCENT ((double)0.5)
-//#define DEFAULT_FREEBUF_PERCENT ((double)0.66666667)
+#endif
+#ifndef DEFAULT_MAX_FREEBUFBYTES
+#define DEFAULT_MAX_FREEBUFBYTES MAX_SIZE_T
+#endif
 // Some platforms depend on malloc when doing atexit, so disable it by default.
 #define SWEEP_STATS 0
 

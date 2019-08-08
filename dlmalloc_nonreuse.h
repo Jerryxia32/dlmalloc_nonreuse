@@ -78,8 +78,7 @@
   Minimum overhead per allocated chunk:   4 or  8 bytes (if 4byte sizes)
                                           8 or 16 bytes (if 8byte sizes)
        Each malloced chunk has a hidden word of overhead holding size
-       and status information, and additional cross-check word
-       if FOOTERS is defined.
+       and status information.
 
   Minimum allocated size: 4-byte ptrs:  16 bytes    (including overhead)
                           8-byte ptrs:  32 bytes    (including overhead)
@@ -105,16 +104,6 @@
        for malloc itself is not corrupted by some other means.  This
        is only one aspect of security -- these checks do not, and
        cannot, detect all possible programming errors.
-
-       If FOOTERS is defined nonzero, then each allocated chunk
-       carries an additional check word to verify that it was malloced
-       from its space.  These check words are the same within each
-       execution of a program using malloc, but differ across
-       executions, so externally crafted fake chunks cannot be
-       freed. This improves security by rejecting frees/reallocs that
-       could corrupt heap memory, in addition to the checks preventing
-       writes to statics that are always on.  This may further improve
-       security at the expense of time and space overhead.
 
        By default detected errors cause the program to abort (calling
        "abort()"). You can override this to instead proceed past
@@ -251,11 +240,6 @@ LOCK_AT_FORK            default: not defined
   to initialize child lock while holding parent lock. The implementation
   assumes that pthread locks (not custom locks) are being used. In other
   cases, you may need to customize the implementation.
-
-FOOTERS                  default: 0
-  If true, provide extra checking and dispatching by placing
-  information in the footers of allocated chunks. This adds
-  space and time overhead.
 
 INSECURE                 default: 0
   If true, omit checks for usage errors and heap space overwrites.
@@ -452,7 +436,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define USE_SPIN_LOCKS 1
 #define USE_RECURSIVE_LOCKS 0
 #define HAVE_MMAP 1
-#define FOOTERS 0
 #define MAX_RELEASE_CHECK_RATE 4095
 //#define MALLOC_UTRACE
 
@@ -529,9 +512,6 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #ifndef MALLOC_ALIGNMENT
 #define MALLOC_ALIGNMENT ((size_t)(2 * sizeof(void *)))
 #endif  /* MALLOC_ALIGNMENT */
-#ifndef FOOTERS
-#define FOOTERS 0
-#endif  /* FOOTERS */
 #ifndef ABORT
 #define ABORT  abort()
 #endif  /* ABORT */

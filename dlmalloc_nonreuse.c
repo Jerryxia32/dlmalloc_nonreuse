@@ -641,11 +641,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define	CHUNK_HEADER_OFFSET	__offsetof(struct malloc_chunk, fd)
 #endif
 
-#if FOOTERS
-#define CHUNK_OVERHEAD      (TWO_SIZE_T_SIZES)
-#else /* FOOTERS */
 #define CHUNK_OVERHEAD      (CHUNK_HEADER_OFFSET)
-#endif /* FOOTERS */
 
 /* MMapped chunks need a second word of overhead ... */
 #define MMAP_CHUNK_OVERHEAD (TWO_SIZE_T_SIZES)
@@ -1263,9 +1259,6 @@ static inline void *bound_ptr(void *mem, size_t bytes)
 #ifndef __CHERI_PURE_CAPABILITY__
 #define	unbound_ptr(m, spp, mem)	(mem)
 #else
-#if FOOTERS
-#error We need gm when calling in free() and realloc() so can't use FOOTERS.
-#endif
 static inline void *unbound_ptr(mstate m, msegmentptr *spp, void *mem)
 {
 	msegmentptr sp;
@@ -1502,12 +1495,7 @@ static size_t traverse_and_check(mstate m);
 #define ok_pinuse(p)     (1)
 #endif /* !INSECURE */
 
-#if (FOOTERS && !INSECURE)
-/* Check if (alleged) mstate m has expected magic field */
-#define ok_magic(M)      ((M)->magic == mparams.magic)
-#else  /* (FOOTERS && !INSECURE) */
 #define ok_magic(M)      (1)
-#endif /* (FOOTERS && !INSECURE) */
 
 /* In gcc, use __builtin_expect to minimize impact of checks */
 #if !INSECURE
@@ -1522,7 +1510,6 @@ static size_t traverse_and_check(mstate m);
 
 /* macros to set up inuse chunks with or without footers */
 
-#if !FOOTERS
 
 #define mark_inuse_foot(M,p,s)
 
@@ -1542,31 +1529,6 @@ static size_t traverse_and_check(mstate m);
 #define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
   ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT))
 
-#else /* FOOTERS */
-
-/* Set foot of inuse chunk to be xor of mstate and seed */
-#define mark_inuse_foot(M,p,s)\
-  (((mchunkptr)((char*)(p) + (s)))->prev_foot = ((size_t)(M) ^ mparams.magic))
-
-#define get_mstate_for(p)\
-  ((mstate)(((mchunkptr)((char*)(p) +\
-    (chunksize(p))))->prev_foot ^ mparams.magic))
-
-#define set_inuse(M,p,s)\
-  ((p)->head = (pdirty(p)|((p)->head & PINUSE_BIT)|s|CINUSE_BIT),\
-  (((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT), \
-  mark_inuse_foot(M,p,s))
-
-#define set_inuse_and_pinuse(M,p,s)\
-  ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
-  (((mchunkptr)(((char*)(p)) + (s)))->head |= PINUSE_BIT),\
- mark_inuse_foot(M,p,s))
-
-#define set_size_and_pinuse_of_inuse_chunk(M, p, s)\
-  ((p)->head = (pdirty(p)|s|PINUSE_BIT|CINUSE_BIT),\
-  mark_inuse_foot(M, p, s))
-
-#endif /* !FOOTERS */
 
 /* ---------------------------- setting mparams -------------------------- */
 
@@ -3156,15 +3118,7 @@ dlfree_internal(void* mem) {
 #ifdef __CHERI_PURE_CAPABILITY__
     p->pad = NULL;
 #endif
-#if FOOTERS
-    mstate fm = get_mstate_for(p);
-    if (!ok_magic(fm)) {
-      USAGE_ERROR_ACTION(fm, p);
-      return;
-    }
-#else /* FOOTERS */
 #define fm gm
-#endif /* FOOTERS */
 
     if (1) {
       check_inuse_chunk(fm, p);
@@ -3259,9 +3213,7 @@ dlfree_internal(void* mem) {
       ;
     }
   }
-#if !FOOTERS
 #undef fm
-#endif /* FOOTERS */
 }
 
 #ifndef __CHERI_PURE_CAPABILITY__
@@ -3342,15 +3294,7 @@ dlfree(void* mem) {
   if(mem != 0) {
     msegmentptr sp;
     mchunkptr p  = mem2chunk(unbound_ptr(gm, &sp, mem));
-#if FOOTERS
-    mstate fm = get_mstate_for(p);
-    if(!ok_magic(fm)) {
-      USAGE_ERROR_ACTION(fm, p);
-      return;
-    }
-#else // FOOTERS
 #define fm gm
-#endif // FOOTERS
 #ifdef __CHERI_PURE_CAPABILITY__
     /*
      * Replace the pointer to the allocation.  This allows us to catch
@@ -3716,15 +3660,7 @@ void* dlrealloc(void* oldmem, size_t bytes) {
   else {
     size_t nb = request2size(bytes);
     mchunkptr oldp = mem2chunk(unbound_ptr(gm, NULL, oldmem));
-#if ! FOOTERS
     mstate m = gm;
-#else /* FOOTERS */
-    mstate m = get_mstate_for(oldp);
-    if (!ok_magic(m)) {
-      USAGE_ERROR_ACTION(m, oldmem);
-      return 0;
-    }
-#endif /* FOOTERS */
 #ifdef MALLOC_UTRACE
     malloc_utrace_suspend++;
 #endif

@@ -561,6 +561,7 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #ifndef DEFAULT_TRIM_THRESHOLD
 #define DEFAULT_TRIM_THRESHOLD ((size_t)2U * (size_t)1024U * (size_t)1024U)
 #endif  /* DEFAULT_TRIM_THRESHOLD */
+#ifndef __CHERI_PURE_CAPABILITY__
 #ifndef DEFAULT_MMAP_THRESHOLD
 #if HAVE_MMAP
 #define DEFAULT_MMAP_THRESHOLD ((size_t)256U * (size_t)1024U)
@@ -568,6 +569,15 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #define DEFAULT_MMAP_THRESHOLD MAX_SIZE_T
 #endif  /* HAVE_MMAP */
 #endif  /* DEFAULT_MMAP_THRESHOLD */
+#else	/* __CHERI_PURE_CAPABILITY__ */
+#undef DEFAULT_MMAP_THRESHOLD
+/*
+ * We need a containing structure for all allocations so we can locate
+ * them in the free() path and so we have somewhere to hang the shadow
+ * capability.
+ */
+#define DEFAULT_MMAP_THRESHOLD MAX_SIZE_T
+#endif	/* __CHERI_PURE_CAPABILITY__ */
 #ifndef MAX_RELEASE_CHECK_RATE
 #if HAVE_MMAP
 #define MAX_RELEASE_CHECK_RATE 4095
@@ -701,6 +711,7 @@ extern "C" {
 #define dlmalloc_footprint_limit malloc_footprint_limit
 #define dlmalloc_set_footprint_limit malloc_set_footprint_limit
 #define dlmalloc_inspect_all   malloc_inspect_all
+#define dlmalloc_revoke        malloc_revoke
 #endif /* USE_DL_PREFIX */
 
 /*
@@ -961,6 +972,8 @@ DLMALLOC_EXPORT void  dlmalloc_stats(void);
   assert(malloc_usable_size(p) >= 256);
 */
 size_t dlmalloc_usable_size(void*);
+
+DLMALLOC_EXPORT void  dlmalloc_revoke(void);
 
 #ifdef __cplusplus
 }  /* end of extern "C" */

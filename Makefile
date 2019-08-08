@@ -1,12 +1,18 @@
-CC?=clang
-LD?=ld.lld
+SDKBIN?=/home/bed22/git/llvm-project-cheri/Build/bin
+SDKROOT?=/home/bed22/bsdtools/cheribsd-root/cheribsd128
+CC=${SDKBIN}/clang -target cheri-unknown-freebsd --sysroot=${SDKROOT}
+LD=${CC} -fuse-ld=lld -B ${SDKBIN}
 DEBUG?=1
 
 CFLAGS=-Wall -Werror
-LDFLAGS=
+CFLAGS+=-mabi=purecap -msoft-float
 CFLAGS+=-std=c11
-CFLAGS+=-c
 CFLAGS+=-Wno-error=unused-function
+
+CFLAGS+=-DCAPREVOKE
+LDFLAGS+=-lcheri_caprevoke
+
+CFLAGS+=-DSAFE_FREEBUF
 
 ifeq ($(DEBUG),1)
 CFLAGS+=-O0
@@ -31,16 +37,25 @@ endif
 endif # DEBUG
 
 ifeq ($(DEBUG),1)
-libdlmalloc_nonreuse.so: dlmalloc_nonreuse.c.o
-	$(LD) $(LDFLAGS) -shared $^ -o $@
+libdlmalloc_nonreuse.so: dlmalloc_nonreuse.o
+	$(LD) $(CFLAGS) $(LDFLAGS) -shared -o $@ $^
 else
-libdlmalloc_nonreuse.so: dlmalloc_nonreuse.c.o
-	$(LD) $(LDFLAGS) -shared $^ -o $@
+libdlmalloc_nonreuse.so: dlmalloc_nonreuse.o
+	$(LD) $(CFLAGS) $(LDFLAGS) -shared $^ -o $@
 	strip $@
 endif
 
-dlmalloc_nonreuse.c.o: dlmalloc_nonreuse.c dlmalloc_nonreuse.h
-	$(CC) $(CFLAGS) -fPIC $< -o $@
+dlmalloc_nonreuse.o: dlmalloc_nonreuse.c dlmalloc_nonreuse.h
+	$(CC) $(CFLAGS) -fPIC -c $< -o $@
+
+dlmalloc_nonreuse-dlprefix.o: dlmalloc_nonreuse.c dlmalloc_nonreuse.h
+	$(CC) $(CFLAGS) -DUSE_DL_PREFIX -c $< -o $@
+
+dlmalloc_test.o: dlmalloc_test.c
+	$(CC) $(CFLAGS) -DUSE_DL_PREFIX -c $< -o $@
+
+dlmalloc_test: dlmalloc_nonreuse-dlprefix.o dlmalloc_test.o
+	$(LD) $(CFLAGS) $(LDFLAGS) -static dlmalloc_nonreuse-dlprefix.o dlmalloc_test.o -o $@
 
 clean:
-	rm -f *.o *.so
+	rm -f dlmalloc_test *.o *.so

@@ -429,6 +429,13 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
   rarely trigger versus holding on to unused memory. To effectively
   disable, set to MAX_SIZE_T. This may lead to a very slight speed
   improvement at the expense of carrying around more memory.
+
+DEFAULT_UNMAP_THRESHOLD	default: MAX_SIZE_T / PAGESIZE
+  Minimum number of adjacent pages required to unmap the middle of a
+  quanintined chunk.  Smaller unmaps may be performed when collessing
+  a smaller chunk into a large chunk which is already unmapped to
+  maintain the invariant that an unmapped chunk has all interior pages
+  unmapped.
 */
 
 // Override default dlmalloc compile-time parameters here.
@@ -454,6 +461,9 @@ MAX_RELEASE_CHECK_RATE   default: 4095 unless not HAVE_MMAP
 #endif
 #ifndef DEFAULT_MAX_FREEBUFBYTES
 #define DEFAULT_MAX_FREEBUFBYTES MAX_SIZE_T
+#endif
+#ifndef DEFAULT_UNMAP_THRESHOLD
+#define DEFAULT_UNMAP_THRESHOLD (MAX_SIZE_T >> PAGE_SHIFT)
 #endif
 // Some platforms depend on malloc when doing atexit, so disable it by default.
 #define SWEEP_STATS 0

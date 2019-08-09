@@ -685,15 +685,18 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 
   CDIRTY_BIT indicates whether this freed chunk is dirty (not swept) or not.
   PDIRTY_BIT indicates whether the previous chunk is in dirty.
+  CUNMAPPED_BIT indicates that the part aligned portion of the (dirty)
+                chunk are unmapped.
 */
 
 #define PINUSE_BIT          (SIZE_T_ONE)
 #define CINUSE_BIT          (SIZE_T_TWO)
 #define PDIRTY_BIT          (SIZE_T_FOUR)
 #define CDIRTY_BIT          (SIZE_T_EIGHT)
+#define CUNMAPPED_BIT       (SIZE_T_SIXTEEN)
 #define INUSE_BITS          (PINUSE_BIT|CINUSE_BIT)
 #define DIRTY_BITS          (PDIRTY_BIT|CDIRTY_BIT)
-#define FLAG_BITS           (PINUSE_BIT|CINUSE_BIT|CDIRTY_BIT|PDIRTY_BIT)
+#define FLAG_BITS           (PINUSE_BIT|CINUSE_BIT|CDIRTY_BIT|PDIRTY_BIT|CUNMAPPED_BIT)
 
 /* Head value for fenceposts */
 #define FENCEPOST_HEAD      (INUSE_BITS)
@@ -703,6 +706,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define pinuse(p)           ((p)->head & PINUSE_BIT)
 #define cdirty(p)           ((p)->head & CDIRTY_BIT)
 #define pdirty(p)           ((p)->head & PDIRTY_BIT)
+#define cunmapped(p)        ((p)->head & CUNMAPPED_BIT)
 #define dirtybits(p)        ((p)->head & (PDIRTY_BIT|CDIRTY_BIT))
 #define inusebits(p)        ((p)->head & (PINUSE_BIT|CINUSE_BIT))
 #define is_inuse(p)         ((((p)->head & INUSE_BITS) != PINUSE_BIT))
@@ -716,6 +720,8 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define clear_cdirty(p)     ((p)->head &= ~CDIRTY_BIT)
 #define set_pdirty(p)       ((p)->head |= PDIRTY_BIT)
 #define clear_pdirty(p)     ((p)->head &= ~PDIRTY_BIT)
+#define set_cunmapped(p)       ((p)->head |= CUNMAPPED_BIT)
+#define clear_cunmapped(p)     ((p)->head &= ~CUNMAPPED_BIT)
 
 /* Treat space at ptr +/- offset as a chunk */
 #define chunk_plus_offset(p, s)  ((mchunkptr)(((char*)(p)) + (s)))
@@ -1085,12 +1091,13 @@ typedef struct malloc_state*    mstate;
 
 struct malloc_params {
   size_t magic;
-  size_t page_size;
+  size_t page_size;;
   size_t granularity;
   size_t mmap_threshold;
   size_t trim_threshold;
   size_t max_freebufbytes;
   double max_freebuf_percent;
+  size_t unmap_threshold;
   flag_t default_mflags;
 };
 
@@ -1573,6 +1580,7 @@ static int init_mparams(void) {
     mparams.default_mflags = USE_LOCK_BIT|USE_MMAP_BIT|USE_NONCONTIGUOUS_BIT;
     mparams.max_freebufbytes = DEFAULT_MAX_FREEBUFBYTES;
     mparams.max_freebuf_percent = DEFAULT_FREEBUF_PERCENT;
+    mparams.unmap_threshold = psize * DEFAULT_UNMAP_THRESHOLD;
 
     /* Set up lock for main malloc area */
     gm->mflags = mparams.default_mflags;
@@ -3298,6 +3306,9 @@ dlfree(void* mem) {
   if(mem != 0) {
     msegmentptr sp;
     mchunkptr p  = mem2chunk(unbound_ptr(gm, &sp, mem));
+    void *unmap_base = NULL;
+    void *unmap_end = NULL;
+
 #define fm gm
 #ifdef __CHERI_PURE_CAPABILITY__
     /*
@@ -3326,6 +3337,14 @@ dlfree(void* mem) {
             size_t prevsize = p->prev_foot;
             mchunkptr prev = chunk_minus_offset(p, prevsize);
             psize += prevsize;
+	    if (cunmapped(prev)) {
+	      /*
+	       * The previous chunk is unmapped up to the page contining our
+	       * chunk header.  We must unmap that page if we can to
+	       * join the unmapped region.
+	       */
+              unmap_base = __builtin_align_down(p, mparams.page_size);
+	    }
             p = prev;
             if(RTCHECK(ok_address(fm, prev))) {
               unlink_freebuf_chunk(fm, p);
@@ -3341,6 +3360,15 @@ dlfree(void* mem) {
               psize += nsize;
               unlink_freebuf_chunk(fm, next);
               set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
+	      if (cunmapped(next)) {
+		/*
+		 * The page after our allocation is unmapped and we
+		 * must join it if we can and consume remainder of the
+		 * next chunk.
+		 */
+		set_cunmapped(p);
+		unmap_end = __builtin_align_up(next, mparams.page_size);
+	      }
             }
             else {
               set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
@@ -3350,6 +3378,21 @@ dlfree(void* mem) {
             CORRUPTION_ERROR_ACTION(fm);
         } else
           USAGE_ERROR_ACTION(fm, p);
+      }
+      if (unmap_base == NULL)
+        unmap_base = __builtin_align_up(chunk2mem(p), mparams.page_size);
+      if (unmap_end == NULL)
+        unmap_end = __builtin_align_down((char *)p + chunksize(p), mparams.page_size);
+      ptrdiff_t unmap_len = (char *)unmap_end - (char *)unmap_base;
+      if (unmap_len > 0 && (size_t)unmap_len >= mparams.unmap_threshold) {
+	set_cunmapped(p);
+      }
+      if (cunmapped(p) && unmap_end > unmap_base) {
+#ifdef VERBOSE
+	printf("%s: unmapping %ti from %#p\n", __func__, unmap_len, unmap_base);
+#endif
+	if (munmap(unmap_base, unmap_len) != 0)
+          CORRUPTION_ERROR_ACTION(fm);
       }
       insert_freebuf_chunk(fm, p);
       if (fm->freebufbytes > mparams.max_freebufbytes) {
@@ -3406,6 +3449,21 @@ malloc_revoke_internal(const char *reason) {
     caprev_shadow_nomap_clear_raw(thePtr->pad, addr, addr + chunksize(thePtr));
 #endif
 #endif
+    if (cunmapped(thePtr)) {
+      char *remap_base = __builtin_align_up(chunk2mem(thePtr),
+					    mparams.page_size);
+      char *remap_end = __builtin_align_down((char *)thePtr + chunksize(thePtr),
+					     mparams.page_size);
+      ptrdiff_t remap_len = remap_end - remap_base;
+      assert(remap_len > 0 && remap_len % mparams.page_size == 0);
+#ifdef VERBOSE
+      printf("%s: remapping %ti from %#p\n", __func__, remap_len, remap_base);
+#endif
+      if (mmap(remap_base, remap_len, PROT_READ|PROT_WRITE,
+	       MAP_FIXED | MAP_ANON | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
+          MAP_FAILED)
+        ABORT;
+    }
     mchunkptr theNext = chunk_plus_offset(thePtr, theSize);
     if(!is_mmapped(thePtr)) {
       assert(cdirty(thePtr));

@@ -3153,6 +3153,8 @@ dlfree_internal(void* mem) {
             mchunkptr prev = chunk_minus_offset(p, prevsize);
             check_freebuf_corrupt(fm, prev);
             psize += prevsize;
+	    /* Don't leak freebuf pointers */
+	    memset(p, 0, CHUNK_HEADER_OFFSET);
             p = prev;
             if (RTCHECK(ok_address(fm, prev))) {
               if (p != fm->dv) {
@@ -3174,6 +3176,8 @@ dlfree_internal(void* mem) {
           if(!cinuse(next)) {
             check_freebuf_corrupt(fm, next);
             if (next == fm->top) {
+	      /* Don't leek allocator pointers */
+	      memset(next, 0, sizeof(tchunk));
               size_t tsize = fm->topsize += psize;
               fm->top = p;
               p->head = dirtybits(p) | tsize | PINUSE_BIT;
@@ -3186,6 +3190,8 @@ dlfree_internal(void* mem) {
               goto postaction;
             }
             else if (next == fm->dv) {
+	      /* Don't leek allocator pointers */
+	      memset(next, 0, sizeof(tchunk));
               size_t dsize = fm->dvsize += psize;
               fm->dv = p;
               set_size_and_pinuse_of_free_chunk(p, dsize);
@@ -3195,6 +3201,8 @@ dlfree_internal(void* mem) {
               size_t nsize = chunksize(next);
               psize += nsize;
               unlink_chunk(fm, next, nsize);
+	      /* Don't leek allocator pointers */
+	      memset(next, 0, sizeof(tchunk));
               set_size_and_pinuse_of_free_chunk(p, psize);
               if (p == fm->dv) {
                 fm->dvsize = psize;

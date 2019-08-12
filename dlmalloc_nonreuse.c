@@ -3329,7 +3329,7 @@ dlfree(void* mem) {
 #else
     p->pad = NULL;
 #endif
-#endif
+#endif /* __CHERI_PURE_CAPABILITY__ */
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
       check_inuse_chunk(fm, p);

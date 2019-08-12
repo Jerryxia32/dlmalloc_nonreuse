@@ -3098,19 +3098,6 @@ void* dlmalloc(size_t bytes) {
     mem = internal_malloc(gm, bytes);
 
   assert(chunksize(mem2chunk(mem)) >= bytes + CHUNK_HEADER_OFFSET);
-#ifdef CAPREVOKE
-  /*
-   * Zero the memory to ensure we don't leak pointers to other parts
-   * of the allocation graph to a consumer.
-   *
-   * XXX: There are optimization opportunities here including:
-   *  - MPROT_QUARANTINE doing clearing.
-   *  - An efficent, ranged tag clearing instruction.
-   *  - Better tracking of the need to zero chunks to avoid zeroing
-   *    just-mmaped memory.
-   */
-  memset(mem, 0, bytes);
-#endif
 
   return bound_ptr(mem, bytes);
 }
@@ -3131,6 +3118,20 @@ dlfree_internal(void* mem) {
     p->pad = NULL;
 #endif
 #define fm gm
+
+#if ZERO_MEMORY
+  /*
+   * Zero the memory to ensure we don't leak pointers to other parts
+   * of the allocation graph to a consumer.
+   *
+   * XXX: There are optimization opportunities here including:
+   *  - MPROT_QUARANTINE doing clearing.
+   *  - An efficent, ranged tag clearing instruction.
+   *  - Better tracking of the need to zero chunks to avoid zeroing
+   *    just-mmaped memory.
+   */
+  memset(mem, 0, chunksize(p) - CHUNK_HEADER_OFFSET);
+#endif /* ZERO_MEMORY */
 
     if (1) {
       check_inuse_chunk(fm, p);

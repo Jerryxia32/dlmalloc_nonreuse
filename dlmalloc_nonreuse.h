@@ -472,6 +472,15 @@ DEFAULT_UNMAP_THRESHOLD	default: MAX_SIZE_T / PAGESIZE
 #define CONSOLIDATE_ON_FREE 0
 #endif
 #endif
+
+#ifndef ZERO_MEMORY
+#ifdef CAPREVOKE
+#define ZERO_MEMORY 1
+#else
+#define ZERO_MEMORY 0
+#endif
+#endif
+
 // Some platforms depend on malloc when doing atexit, so disable it by default.
 #define SWEEP_STATS 0
 

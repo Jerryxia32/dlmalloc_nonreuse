@@ -1097,7 +1097,9 @@ struct malloc_params {
   size_t trim_threshold;
   size_t max_freebufbytes;
   double max_freebuf_percent;
+#if SUPPORT_UNMAP
   size_t unmap_threshold;
+#endif
   flag_t default_mflags;
 };
 
@@ -1580,7 +1582,9 @@ static int init_mparams(void) {
     mparams.default_mflags = USE_LOCK_BIT|USE_MMAP_BIT|USE_NONCONTIGUOUS_BIT;
     mparams.max_freebufbytes = DEFAULT_MAX_FREEBUFBYTES;
     mparams.max_freebuf_percent = DEFAULT_FREEBUF_PERCENT;
+#if SUPPORT_UNMAP
     mparams.unmap_threshold = psize * DEFAULT_UNMAP_THRESHOLD;
+#endif
 
     /* Set up lock for main malloc area */
     gm->mflags = mparams.default_mflags;
@@ -3119,6 +3123,24 @@ dlfree_internal(void* mem) {
 #endif
 #define fm gm
 
+#if SUPPORT_UNMAP
+    char *remap_base, *remap_end;
+    if (cunmapped(p)) {
+      remap_base = __builtin_align_up(chunk2mem(p), mparams.page_size);
+      remap_end = __builtin_align_down((char *)p + chunksize(p),
+				       mparams.page_size);
+      ptrdiff_t remap_len = remap_end - remap_base;
+      assert(remap_len > 0 && remap_len % mparams.page_size == 0);
+#ifdef VERBOSE
+      printf("%s: remapping %ti from %#p\n", __func__, remap_len, remap_base);
+#endif
+      if (mmap(remap_base, remap_len, PROT_READ|PROT_WRITE,
+	       MAP_FIXED | MAP_ANON | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
+          MAP_FAILED)
+        ABORT;
+    }
+#endif /* SUPPORT_UNMAP */
+
 #if ZERO_MEMORY
   /*
    * Zero the memory to ensure we don't leak pointers to other parts
@@ -3127,11 +3149,22 @@ dlfree_internal(void* mem) {
    * XXX: There are optimization opportunities here including:
    *  - MPROT_QUARANTINE doing clearing.
    *  - An efficent, ranged tag clearing instruction.
-   *  - Better tracking of the need to zero chunks to avoid zeroing
-   *    just-mmaped memory.
    */
-  memset(mem, 0, chunksize(p) - CHUNK_HEADER_OFFSET);
+#if SUPPORT_UNMAP
+    if (cunmapped(p)) {
+      memset(mem, 0, remap_base - (char *)mem);
+      memset(remap_end, 0, (char *)mem + chunksize(p) - remap_end);
+    } else
+#else
+      memset(mem, 0, chunksize(p) - CHUNK_HEADER_OFFSET);
+#endif
 #endif /* ZERO_MEMORY */
+
+#if SUPPORT_UNMAP
+    if (cunmapped(p)) {
+      clear_cunmapped(p);
+    }
+#endif
 
     if (1) {
       check_inuse_chunk(fm, p);
@@ -3315,8 +3348,10 @@ dlfree(void* mem) {
   if(mem != 0) {
     msegmentptr sp;
     mchunkptr p  = mem2chunk(unbound_ptr(gm, &sp, mem));
+#if SUPPORT_UNMAP
     void *unmap_base = NULL;
     void *unmap_end = NULL;
+#endif
 
 #define fm gm
 #ifdef __CHERI_PURE_CAPABILITY__
@@ -3347,6 +3382,7 @@ dlfree(void* mem) {
             size_t prevsize = p->prev_foot;
             mchunkptr prev = chunk_minus_offset(p, prevsize);
             psize += prevsize;
+#if SUPPORT_UNMAP
 	    if (cunmapped(prev)) {
 	      /*
 	       * The previous chunk is unmapped up to the page contining our
@@ -3355,6 +3391,7 @@ dlfree(void* mem) {
 	       */
               unmap_base = __builtin_align_down(p, mparams.page_size);
 	    }
+#endif
             p = prev;
             if(RTCHECK(ok_address(fm, prev))) {
               unlink_freebuf_chunk(fm, p);
@@ -3370,6 +3407,7 @@ dlfree(void* mem) {
               psize += nsize;
               unlink_freebuf_chunk(fm, next);
               set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
+#if SUPPORT_UNMAP
 	      if (cunmapped(next)) {
 		/*
 		 * The page after our allocation is unmapped and we
@@ -3379,6 +3417,7 @@ dlfree(void* mem) {
 		set_cunmapped(p);
 		unmap_end = __builtin_align_up(next, mparams.page_size);
 	      }
+#endif
             }
             else {
               set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
@@ -3392,6 +3431,7 @@ dlfree(void* mem) {
 #endif /* CONSOLIDATE_ON_FREE == 1 */
       insert_freebuf_chunk(fm, p);
 
+#if SUPPORT_UNMAP
       if (unmap_base == NULL)
         unmap_base = __builtin_align_up(chunk2mem(p), mparams.page_size);
       if (unmap_end == NULL)
@@ -3413,6 +3453,7 @@ dlfree(void* mem) {
             MAP_FAILED)
           CORRUPTION_ERROR_ACTION(fm);
       }
+#endif
 
       if (fm->freebufbytes > mparams.max_freebufbytes) {
         malloc_revoke_internal("mparams.max_freebufbytes exceeded");
@@ -3471,21 +3512,6 @@ malloc_revoke_internal(const char *reason) {
     caprev_shadow_nomap_clear_raw(thePtr->pad, addr, addr + chunksize(thePtr));
 #endif
 #endif
-    if (cunmapped(thePtr)) {
-      char *remap_base = __builtin_align_up(chunk2mem(thePtr),
-					    mparams.page_size);
-      char *remap_end = __builtin_align_down((char *)thePtr + chunksize(thePtr),
-					     mparams.page_size);
-      ptrdiff_t remap_len = remap_end - remap_base;
-      assert(remap_len > 0 && remap_len % mparams.page_size == 0);
-#ifdef VERBOSE
-      printf("%s: remapping %ti from %#p\n", __func__, remap_len, remap_base);
-#endif
-      if (mmap(remap_base, remap_len, PROT_READ|PROT_WRITE,
-	       MAP_FIXED | MAP_ANON | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
-          MAP_FAILED)
-        ABORT;
-    }
 #if CONSOLIDATE_ON_FREE == 1
     mchunkptr theNext = chunk_plus_offset(thePtr, theSize);
     if(!is_mmapped(thePtr)) {

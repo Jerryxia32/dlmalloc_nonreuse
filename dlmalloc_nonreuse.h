@@ -473,6 +473,10 @@ DEFAULT_UNMAP_THRESHOLD	default: MAX_SIZE_T / PAGESIZE
 #endif
 #endif
 
+#ifndef SUPPORT_UNMAP
+#define SUPPORT_UNMAP 1
+#endif
+
 #ifndef ZERO_MEMORY
 #ifdef CAPREVOKE
 #define ZERO_MEMORY 1

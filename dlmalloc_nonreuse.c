@@ -3338,6 +3338,7 @@ dlfree(void* mem) {
       fm->freeBytes += chunksize(p);
 #endif // SWEEP_STATS
       check_freebuf_corrupt(fm, p);
+#if CONSOLIDATE_ON_FREE == 1
       if(!is_mmapped(p)) {
         if(RTCHECK(ok_address(fm, p) && ok_inuse(p))) {
           size_t psize = chunksize(p);
@@ -3387,6 +3388,9 @@ dlfree(void* mem) {
         } else
           USAGE_ERROR_ACTION(fm, p);
       }
+#endif /* CONSOLIDATE_ON_FREE == 1 */
+      insert_freebuf_chunk(fm, p);
+
       if (unmap_base == NULL)
         unmap_base = __builtin_align_up(chunk2mem(p), mparams.page_size);
       if (unmap_end == NULL)
@@ -3402,7 +3406,7 @@ dlfree(void* mem) {
 	if (munmap(unmap_base, unmap_len) != 0)
           CORRUPTION_ERROR_ACTION(fm);
       }
-      insert_freebuf_chunk(fm, p);
+
       if (fm->freebufbytes > mparams.max_freebufbytes) {
         malloc_revoke_internal("mparams.max_freebufbytes exceeded");
       }
@@ -3449,7 +3453,9 @@ malloc_revoke_internal(const char *reason) {
 
   for (mchunkptr thePtr = freebin->fd; thePtr != freebin; thePtr = freebin->fd) {
     unlink_first_freebuf_chunk(gm, freebin, thePtr);
+#if CONSOLIDATE_ON_FREE == 1 || !defined(__CHERI_PURE_CAPABILITY__)
     size_t theSize = chunksize(thePtr);
+#endif
 #ifndef __CHERI_PURE_CAPABILITY__
     shadow_clear(thePtr, theSize);
 #else
@@ -3473,6 +3479,7 @@ malloc_revoke_internal(const char *reason) {
           MAP_FAILED)
         ABORT;
     }
+#if CONSOLIDATE_ON_FREE == 1
     mchunkptr theNext = chunk_plus_offset(thePtr, theSize);
     if(!is_mmapped(thePtr)) {
       assert(cdirty(thePtr));
@@ -3480,6 +3487,7 @@ malloc_revoke_internal(const char *reason) {
       clear_cdirty(thePtr);
       clear_pdirty(theNext);
     }
+#endif /* CONSOLIDATE_ON_FREE == 1 */
 
     // Have to do free_internal after unlinking, otherwise the circular
     // list of freebufbin will get corrupted.

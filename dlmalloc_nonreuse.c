@@ -3403,7 +3403,13 @@ dlfree(void* mem) {
 #ifdef VERBOSE
 	printf("%s: unmapping %ti from %#p\n", __func__, unmap_len, unmap_base);
 #endif
-	if (munmap(unmap_base, unmap_len) != 0)
+	/*
+	 * We'd like to unmap the memory, but that could lead to reuse.
+	 * Instead, map it MAP_GUARD.
+	 */
+        if (mmap(unmap_base, unmap_len, PROT_NONE,
+	         MAP_FIXED | MAP_GUARD | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
+            MAP_FAILED)
           CORRUPTION_ERROR_ACTION(fm);
       }
 

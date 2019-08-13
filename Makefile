@@ -9,7 +9,7 @@ CFLAGS+=-mabi=purecap -msoft-float
 CFLAGS+=-std=c11
 CFLAGS+=-Wno-error=unused-function
 
-CFLAGS+=-DCAPREVOKE
+CFLAGS+=-DCAPREVOKE -DCHERI_SET_BOUNDS
 LDFLAGS+=-lcheri_caprevoke
 
 CFLAGS+=-DSAFE_FREEBUF

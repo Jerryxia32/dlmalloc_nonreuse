@@ -55,8 +55,10 @@ malloc_checked(size_t bytes)
 		bad_ptr(ptr, "missing tag");
 	if (cheri_getlen(ptr) < bytes)
 		bad_ptr(ptr, "length is less than %zu", bytes);
+#ifdef CHERI_SET_BOUNDS
 	if (cheri_getoffset(ptr) != 0)
 		bad_ptr(ptr, "pointer has non-zero offset");
+#endif
 	return (ptr);
 }
 
@@ -72,8 +74,10 @@ calloc_checked(size_t number, size_t size)
 		bad_ptr(ptr, "missing tag");
 	if (cheri_getlen(ptr) < number * size)
 		bad_ptr(ptr, "length is less than %zu", number * size);
+#ifdef CHERI_SET_BOUNDS
 	if (cheri_getoffset(ptr) != 0)
 		bad_ptr(ptr, "pointer has non-zero offset");
+#endif
 	return (ptr);
 }
 
@@ -89,8 +93,10 @@ realloc_checked(void *optr, size_t bytes)
 		bad_ptr(ptr, "missing tag");
 	if (cheri_getlen(ptr) < bytes)
 		bad_ptr(ptr, "length is less than %zu", bytes);
+#ifdef CHERI_SET_BOUNDS
 	if (cheri_getoffset(ptr) != 0)
 		bad_ptr(ptr, "pointer has non-zero offset");
+#endif
 	return (ptr);
 }
 

@@ -43,6 +43,12 @@
 
 /*------------------------------ internal #includes ---------------------- */
 
+#ifdef CAPREVOKE
+#ifndef CHERI_SET_BOUNDS
+#error "CHERI_SET_BOUNDS required for CAPREVOKE"
+#endif
+#endif
+
 #if !NO_MALLOC_STATS
 #include <stdio.h>       /* for printing in malloc_stats */
 #endif /* NO_MALLOC_STATS */
@@ -1255,9 +1261,13 @@ static inline void *bound_ptr(void *mem, size_t bytes)
 {
 	void* ptr;
 
+#ifdef CHERI_SET_BOUNDS
 	ptr = __builtin_cheri_perms_and(
 	    __builtin_cheri_bounds_set(mem, bytes),
 	    CHERI_PERMS_USERSPACE_DATA & ~CHERI_PERM_CHERIABI_VMMAP);
+#else
+	ptr = mem;
+#endif
 	mem2chunk(mem)->pad = mem;
 	return ptr;
 }
@@ -1272,8 +1282,9 @@ static inline void *bound_ptr(void *mem, size_t bytes)
 #else
 static inline void *unbound_ptr(mstate m, msegmentptr *spp, void *mem)
 {
-	msegmentptr sp;
 	void* ptr;
+#ifdef CHERI_SET_BOUNDS
+	msegmentptr sp;
 
 	if (__builtin_cheri_tag_get(mem) != 1 ||
 	    __builtin_cheri_offset_get(mem) != 0)
@@ -1284,6 +1295,11 @@ static inline void *unbound_ptr(mstate m, msegmentptr *spp, void *mem)
 	if (spp != NULL)
 		*spp = sp;
 	ptr = sp->base + ((char *)mem - (char *)sp->base);
+#else
+	if (__builtin_cheri_tag_get(mem) != 1)
+		USAGE_ERROR_ACTION(m, mem);
+	ptr = mem;
+#endif
 	if (ptr != mem2chunk(ptr)->pad ||
 	    (__builtin_cheri_perms_get(mem2chunk(ptr)->pad) &
 	     CHERI_PERM_CHERIABI_VMMAP) == 0)

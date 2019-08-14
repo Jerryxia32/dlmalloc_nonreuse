@@ -714,7 +714,7 @@ typedef unsigned int flag_t;           /* The type of various bit flag sets */
 #define pdirty(p)           ((p)->head & PDIRTY_BIT)
 #define cunmapped(p)        ((p)->head & CUNMAPPED_BIT)
 #define dirtybits(p)        ((p)->head & (PDIRTY_BIT|CDIRTY_BIT))
-#define inusebits(p)        ((p)->head & (PINUSE_BIT|CINUSE_BIT))
+#define inusebits(p)        ((p)->head & (PINUSE_BIT|CINUSE_BIT|CUNMAPPED_BIT))
 #define is_inuse(p)         ((((p)->head & INUSE_BITS) != PINUSE_BIT))
 #define is_mmapped(p)       (((p)->head & INUSE_BITS) == 0)
 

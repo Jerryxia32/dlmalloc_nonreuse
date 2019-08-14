@@ -3144,7 +3144,7 @@ dlfree_internal(void* mem) {
 #define fm gm
 
 #if SUPPORT_UNMAP
-    char *remap_base, *remap_end;
+    char *remap_base = NULL, *remap_end = NULL;
     if (cunmapped(p)) {
       remap_base = __builtin_align_up(chunk2mem(p), mparams.page_size);
       remap_end = __builtin_align_down((char *)p + chunksize(p),
@@ -3172,12 +3172,21 @@ dlfree_internal(void* mem) {
    */
 #if SUPPORT_UNMAP
     if (cunmapped(p)) {
+      assert(remap_base && remap_end);
+#ifdef VERBOSE
+      printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, remap_base - (char *)mem, mem);
+      printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, (char *)mem + chunksize(p) - remap_end, remap_end);
+#endif
       memset(mem, 0, remap_base - (char *)mem);
       memset(remap_end, 0, (char *)mem + chunksize(p) - remap_end);
     } else
-#else
-      memset(mem, 0, chunksize(p) - CHUNK_HEADER_OFFSET);
+#endif /* SUPPORT_UNMAP */
+    {
+#ifdef VERBOSE
+      printf("%s: zeroing %ti from %#p\n", __func__, chunksize(p) - CHUNK_HEADER_OFFSET, mem);
 #endif
+      memset(mem, 0, chunksize(p) - CHUNK_HEADER_OFFSET);
+    }
 #endif /* ZERO_MEMORY */
 
 #if SUPPORT_UNMAP

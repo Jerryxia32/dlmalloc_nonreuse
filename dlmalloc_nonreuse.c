@@ -3103,7 +3103,7 @@ static void* internal_malloc(mstate m, size_t bytes) {
   return 0;
 }
 
-void* dlmalloc(size_t bytes) {
+static void* dlmalloc_internal_unbounded(size_t bytes) {
   void *mem;
 #ifdef __CHERI_PURE_CAPABILITY__
   bytes = __builtin_cheri_round_representable_length(bytes);
@@ -3119,7 +3119,11 @@ void* dlmalloc(size_t bytes) {
 
   assert(chunksize(mem2chunk(mem)) >= bytes + CHUNK_HEADER_OFFSET);
 
-  return bound_ptr(mem, bytes);
+  return mem;
+}
+
+void* dlmalloc(size_t bytes) {
+    return bound_ptr(dlmalloc_internal_unbounded(bytes), bytes);
 }
 
 /* ---------------------------- free --------------------------- */
@@ -3560,12 +3564,12 @@ void* dlcalloc(size_t n_elements, size_t elem_size) {
         (req / n_elements != elem_size))
       req = MAX_SIZE_T; /* force downstream failure on overflow */
   }
-  mem = dlmalloc(req);
+  mem = dlmalloc_internal_unbounded(req);
 #ifndef CAPREVOKE
   if (mem != 0 && calloc_must_clear(mem2chunk(mem)))
     memset(mem, 0, req);
 #endif
-  return mem;
+  return bound_ptr(mem, req);
 }
 
 /* ------------ Internal support for realloc, memalign, etc -------------- */
@@ -3851,7 +3855,7 @@ int dlposix_memalign(void** pp, size_t alignment, size_t bytes) {
   bytes = __builtin_cheri_round_representable_length(bytes);
 #endif
   if (alignment == MALLOC_ALIGNMENT)
-    mem = dlmalloc(bytes);
+    mem = dlmalloc_internal_unbounded(bytes);
   else {
     size_t d = alignment / sizeof(void*);
     size_t r = alignment % sizeof(void*);

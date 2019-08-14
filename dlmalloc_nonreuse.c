@@ -1241,12 +1241,31 @@ static int has_segment_link(mstate m, msegmentptr ss) {
   useful in custom actions that try to help diagnose errors.
 */
 
+// Hopefully snprintf() won't call malloc().
+#define malloc_printf(...) do { \
+    char buf[1024]; \
+    snprintf(buf, sizeof(buf), __VA_ARGS__); \
+    write(STDERR_FILENO, buf, strlen(buf)); \
+} while(0);
+
+__attribute((optnone))
+static inline void usage_error(mstate m, void *mem) {
+    malloc_printf("USAGE ERROR: mstate=%p, mem=%#p\n", m, mem);
+    abort();
+}
+
+__attribute((optnone))
+static inline void corruption_error(mstate m) {
+    malloc_printf("CORRUPTION ERROR: mstate=%#p\n", m);
+    abort();
+}
+
 #ifndef CORRUPTION_ERROR_ACTION
-#define CORRUPTION_ERROR_ACTION(m) ABORT
+#define CORRUPTION_ERROR_ACTION(m) corruption_error(m)
 #endif /* CORRUPTION_ERROR_ACTION */
 
 #ifndef USAGE_ERROR_ACTION
-#define USAGE_ERROR_ACTION(m,p) ABORT
+#define USAGE_ERROR_ACTION(m,p) usage_error(m, p)
 #endif /* USAGE_ERROR_ACTION */
 
 /* --------------------------- CHERI support ----------------------------- */
@@ -2013,11 +2032,11 @@ static void internal_malloc_stats(mstate m) {
       }
     }
     POSTACTION(m); /* drop lock */
-    fprintf(stderr, "max system bytes      = %10zu\n", maxfp);
-    fprintf(stderr, "system bytes          = %10zu\n", fp);
-    fprintf(stderr, "in use bytes          = %10zu\n", used);
+    malloc_printf("max system bytes      = %10zu\n", maxfp);
+    malloc_printf("system bytes          = %10zu\n", fp);
+    malloc_printf("in use bytes          = %10zu\n", used);
 #if USE_LOCKS && USE_SPIN_LOCKS && (!defined(USE_RECURSIVE_LOCKS) || USE_RECURSIVE_LOCKS==0)
-    fprintf(stderr, "global lock contended = %10zu\n", lockContended);
+    malloc_printf("global lock contended = %10zu\n", lockContended);
 #endif // USE_LOCKS
   }
 }
@@ -2516,12 +2535,12 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
 #if SWEEP_STATS
 static void
 print_sweep_stats() {
-  fprintf(stderr, "Sweeps: %zd.\n", gm->sweepTimes);
-  fprintf(stderr, "Swept bytes: %zd.\n", gm->sweptBytes);
-  fprintf(stderr, "Frees: %zd.\n", gm->freeTimes);
-  fprintf(stderr, "Free bytes: %zd.\n", gm->freeBytes);
-  fprintf(stderr, "Bits painted: %zd.\n", gm->bitsPainted);
-  fprintf(stderr, "Bits cleared: %zd.\n", gm->bitsCleared);
+  malloc_printf("Sweeps: %zd.\n", gm->sweepTimes);
+  malloc_printf("Swept bytes: %zd.\n", gm->sweptBytes);
+  malloc_printf("Frees: %zd.\n", gm->freeTimes);
+  malloc_printf("Free bytes: %zd.\n", gm->freeBytes);
+  malloc_printf("Bits painted: %zd.\n", gm->bitsPainted);
+  malloc_printf("Bits cleared: %zd.\n", gm->bitsCleared);
 }
 #endif // SWEEP_STATS
 
@@ -3152,7 +3171,7 @@ dlfree_internal(void* mem) {
       ptrdiff_t remap_len = remap_end - remap_base;
       assert(remap_len > 0 && remap_len % mparams.page_size == 0);
 #ifdef VERBOSE
-      printf("%s: remapping %ti from %#p\n", __func__, remap_len, remap_base);
+      malloc_printf("%s: remapping %ti from %#p\n", __func__, remap_len, remap_base);
 #endif
       if (mmap(remap_base, remap_len, PROT_READ|PROT_WRITE,
 	       MAP_FIXED | MAP_ANON | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
@@ -3174,8 +3193,8 @@ dlfree_internal(void* mem) {
     if (cunmapped(p)) {
       assert(remap_base && remap_end);
 #ifdef VERBOSE
-      printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, remap_base - (char *)mem, mem);
-      printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, (char *)mem + chunksize(p) - remap_end, remap_end);
+      malloc_printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, remap_base - (char *)mem, mem);
+      malloc_printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, (char *)mem + chunksize(p) - remap_end, remap_end);
 #endif
       memset(mem, 0, remap_base - (char *)mem);
       memset(remap_end, 0, (char *)mem + chunksize(p) - remap_end);
@@ -3183,7 +3202,7 @@ dlfree_internal(void* mem) {
 #endif /* SUPPORT_UNMAP */
     {
 #ifdef VERBOSE
-      printf("%s: zeroing %ti from %#p\n", __func__, chunksize(p) - CHUNK_HEADER_OFFSET, mem);
+      malloc_printf("%s: zeroing %ti from %#p\n", __func__, chunksize(p) - CHUNK_HEADER_OFFSET, mem);
 #endif
       memset(mem, 0, chunksize(p) - CHUNK_HEADER_OFFSET);
     }
@@ -3229,8 +3248,10 @@ dlfree_internal(void* mem) {
                 goto postaction;
               }
             }
-            else
+            else {
+              malloc_printf("fail: (%#p) >= (M)->least_addr(%#p)\n", prev, fm->least_addr);
               goto erroraction;
+            }
           }
         }
 
@@ -3471,7 +3492,7 @@ dlfree(void* mem) {
       }
       if (cunmapped(p) && unmap_end > unmap_base) {
 #ifdef VERBOSE
-	printf("%s: unmapping %ti from %#p\n", __func__, unmap_len, unmap_base);
+	malloc_printf("%s: unmapping %ti from %#p\n", __func__, unmap_len, unmap_base);
 #endif
 	/*
 	 * We'd like to unmap the memory, but that could lead to reuse.
@@ -3499,7 +3520,7 @@ dlfree(void* mem) {
 static void
 malloc_revoke_internal(const char *reason) {
 #ifdef VERBOSE
-  printf("%s: %s\n", __func__, reason);
+  malloc_printf("%s: %s\n", __func__, reason);
 #endif
 #if SWEEP_STATS
   gm->sweepTimes++;
@@ -3735,7 +3756,7 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
 
       mem = chunk2mem(p);
       assert (chunksize(p) >= nb);
-      assert(((size_t)mem & (alignment - 1)) == 0);
+      assert(__builtin_is_aligned(mem, alignment));
       check_inuse_chunk(m, p);
       POSTACTION(m);
     }

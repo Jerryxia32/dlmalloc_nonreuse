@@ -2026,7 +2026,14 @@ static void internal_malloc_stats(mstate m) {
                q != m->top && q->head != FENCEPOST_HEAD) {
           if (!is_inuse(q))
             used -= chunksize(q);
-          q = next_chunk(q);
+          mchunkptr next = next_chunk(q);
+          // FIXME: work around infinite loop
+          if (next == q) {
+            malloc_printf("ERROR: Infinite loop in %s: q=%#p, head=0x%zx, m->top=%#p\n",
+                          __func__, q, q->head, m->top);
+            break;
+          }
+          q = next;
         }
         s = s->next;
       }
@@ -2533,6 +2540,8 @@ static void add_segment(mstate m, char* tbase, size_t tsize, flag_t mmapped) {
 }
 
 #if SWEEP_STATS
+// atexit() calls malloc, try using __attribute__((destructor)) instead.
+__attribute__((destructor))
 static void
 print_sweep_stats() {
   malloc_printf("Sweeps: %zd.\n", gm->sweepTimes);
@@ -2541,6 +2550,7 @@ print_sweep_stats() {
   malloc_printf("Free bytes: %zd.\n", gm->freeBytes);
   malloc_printf("Bits painted: %zd.\n", gm->bitsPainted);
   malloc_printf("Bits cleared: %zd.\n", gm->bitsCleared);
+  dlmalloc_stats();
 }
 #endif // SWEEP_STATS
 
@@ -2602,10 +2612,6 @@ static void* sys_alloc(mstate m, size_t nb) {
       m->max_footprint = m->footprint;
 
     if (!is_initialized(m)) { /* first-time initialization */
-#if SWEEP_STATS
-      atexit(print_sweep_stats);
-      atexit(dlmalloc_stats);
-#endif // SWEEP_STATS
       if (m->least_addr == 0 || tbase < m->least_addr)
         m->least_addr = tbase;
       m->seg.base = tbase;
@@ -3964,7 +3970,7 @@ struct mallinfo dlmallinfo(void) {
 #endif /* NO_MALLINFO */
 
 #if !NO_MALLOC_STATS
-void dlmalloc_stats() {
+void dlmalloc_stats(void) {
   internal_malloc_stats(gm);
 }
 #endif /* NO_MALLOC_STATS */

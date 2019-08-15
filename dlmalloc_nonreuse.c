@@ -1067,6 +1067,8 @@ struct malloc_state {
   size_t     footprint;
   size_t     max_footprint;
   size_t     footprint_limit; /* zero means no limit */
+  size_t     allocated;
+  size_t     max_allocated;
 #if SWEEP_STATS
   size_t     sweepTimes;
   size_t     sweptBytes;
@@ -2010,6 +2012,8 @@ static struct mallinfo internal_mallinfo(mstate m) {
 static void internal_malloc_stats(mstate m) {
   ensure_initialization();
   if (!PREACTION(m)) {
+    size_t allocated = 0;
+    size_t max_allocated = 0;
     size_t maxfp = 0;
     size_t fp = 0;
     size_t used = 0;
@@ -2017,6 +2021,8 @@ static void internal_malloc_stats(mstate m) {
     if (is_initialized(m)) {
       msegmentptr s = &m->seg;
       maxfp = m->max_footprint;
+      allocated = m->allocated;
+      max_allocated = m->max_allocated;
       fp = m->footprint;
       used = fp - (m->topsize + TOP_FOOT_SIZE);
 
@@ -2042,6 +2048,8 @@ static void internal_malloc_stats(mstate m) {
     malloc_printf("max system bytes      = %10zu\n", maxfp);
     malloc_printf("system bytes          = %10zu\n", fp);
     malloc_printf("in use bytes          = %10zu\n", used);
+    malloc_printf("allocated bytes       = %10zu\n", allocated);
+    malloc_printf("max allocated bytes   = %10zu\n", max_allocated);
 #if USE_LOCKS && USE_SPIN_LOCKS && (!defined(USE_RECURSIVE_LOCKS) || USE_RECURSIVE_LOCKS==0)
     malloc_printf("global lock contended = %10zu\n", lockContended);
 #endif // USE_LOCKS
@@ -3122,6 +3130,9 @@ static void* internal_malloc(mstate m, size_t bytes) {
     }
     POSTACTION(m);
     UTRACE(0, bytes, mem);
+    m->allocated += chunksize(mem2chunk(mem));
+    if (m->allocated > m->max_allocated)
+      m->max_allocated = m->allocated;
     return mem;
   }
 
@@ -3408,6 +3419,7 @@ dlfree(void* mem) {
   if(mem != 0) {
     msegmentptr sp;
     mchunkptr p  = mem2chunk(unbound_ptr(gm, &sp, mem));
+    gm->allocated -= chunksize(p);
 #if SUPPORT_UNMAP
     void *unmap_base = NULL;
     void *unmap_end = NULL;
@@ -3771,6 +3783,9 @@ static void* internal_memalign(mstate m, size_t alignment, size_t bytes) {
       POSTACTION(m);
     }
   }
+  m->allocated += chunksize(mem2chunk(mem));
+  if (m->allocated > m->max_allocated)
+    m->max_allocated = m->allocated;
   return mem;
 }
 

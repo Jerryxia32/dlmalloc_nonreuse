@@ -3192,12 +3192,16 @@ dlfree_internal(void* mem) {
 #if SUPPORT_UNMAP
     if (cunmapped(p)) {
       assert(remap_base && remap_end);
+      size_t leading_size = remap_base - (char *)mem;
+      // XXXAR: I'm not sure I understand this code correctly but it seems we
+      // need to subtract CHUNK_HEADER_OFFSET to avoid zeroing the next chunk
+      size_t trailing_size = (char *)mem + chunksize(p) - remap_end - CHUNK_HEADER_OFFSET;
 #ifdef VERBOSE
-      malloc_printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, remap_base - (char *)mem, mem);
-      malloc_printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, (char *)mem + chunksize(p) - remap_end, remap_end);
+      malloc_printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, leading_size, mem);
+      malloc_printf("%s: cunmapped: zeroing %ti from %#p\n", __func__, trailing_size, remap_end);
 #endif
-      memset(mem, 0, remap_base - (char *)mem);
-      memset(remap_end, 0, (char *)mem + chunksize(p) - remap_end);
+      memset(mem, 0, leading_size);
+      memset(remap_end, 0, trailing_size);
     } else
 #endif /* SUPPORT_UNMAP */
     {

@@ -1283,12 +1283,12 @@ static inline void *bound_ptr(void *mem, size_t bytes)
 	void* ptr;
 
 #ifdef CHERI_SET_BOUNDS
-	ptr = __builtin_cheri_perms_and(
-	    __builtin_cheri_bounds_set(mem, bytes),
-	    CHERI_PERMS_USERSPACE_DATA & ~CHERI_PERM_CHERIABI_VMMAP);
+	ptr = __builtin_cheri_bounds_set(mem, bytes);
 #else
 	ptr = mem;
 #endif
+	ptr = __builtin_cheri_perms_and(ptr,
+	    CHERI_PERMS_USERSPACE_DATA & ~CHERI_PERM_CHERIABI_VMMAP);
 	mem2chunk(mem)->pad = mem;
 	return ptr;
 }

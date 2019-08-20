@@ -3148,7 +3148,6 @@ static void* dlmalloc_internal_unbounded(size_t bytes) {
   size_t align = 1 + ~mask;
 
   if (mask != MAX_SIZE_T && align > MALLOC_ALIGNMENT) {
-    size_t align = 1 + ~mask;
     mem = internal_memalign(gm, align, bytes);
   } else
 #endif

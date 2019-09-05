@@ -1103,6 +1103,7 @@ struct malloc_params {
   size_t granularity;
   size_t mmap_threshold;
   size_t trim_threshold;
+  size_t min_freebufbytes;
   size_t max_freebufbytes;
   double max_freebuf_percent;
 #if SUPPORT_UNMAP
@@ -1632,6 +1633,16 @@ static int init_mparams(void) {
     } else
       mparams.max_freebufbytes = DEFAULT_MAX_FREEBUFBYTES;
 
+    if ((valuestr = getenv("MALLOC_MIN_FREEBUF_BYTES")) != NULL) {
+      value = strtol(valuestr, &endp, 0);
+      if (value == 0 && *endp != '\0')
+        value = DEFAULT_MIN_FREEBUFBYTES;
+      if (value < 0)
+        value = MAX_SIZE_T;
+      mparams.min_freebufbytes = value;
+    } else
+      mparams.min_freebufbytes = DEFAULT_MIN_FREEBUFBYTES;
+
     if ((valuestr = getenv("MALLOC_MAX_FREEBUF_PERCENT")) != NULL) {
       value = strtol(valuestr, &endp, 0);
       if (value == 0 && *endp != '\0')
@@ -1707,6 +1718,9 @@ static int change_mparam(int param_number, ssize_t value) {
       return 0;
   case M_MMAP_THRESHOLD:
     mparams.mmap_threshold = val;
+    return 1;
+  case M_MIN_FREEBUFBYTES:
+    mparams.min_freebufbytes = val;
     return 1;
   case M_MAX_FREEBUFBYTES:
     mparams.max_freebufbytes = val;
@@ -3572,10 +3586,11 @@ dlfree(void* mem) {
 
       if (fm->freebufbytes > mparams.max_freebufbytes) {
         malloc_revoke_internal("mparams.max_freebufbytes exceeded");
-      }
-      if (fm->freebufbytes >
-          (size_t)(fm->footprint * mparams.max_freebuf_percent)) {
-        malloc_revoke_internal("mparams.max_freebuf_percent exceeded");
+      } else if (fm->freebufbytes > mparams.min_freebufbytes &&
+	         fm->freebufbytes >
+                 (size_t)(fm->footprint * mparams.max_freebuf_percent)) {
+        malloc_revoke_internal("mparams.max_freebuf_percent and "
+	                       "mparams.min_freebufbytes exceeded");
       }
       POSTACTION(fm);
     }

@@ -719,6 +719,7 @@ extern "C" {
 #define dlfree                 free
 #define dlmalloc               malloc
 #define dlposix_memalign       posix_memalign
+#define dlaligned_alloc        aligned_alloc
 #define dlrealloc              realloc
 #define dlmallinfo             mallinfo
 #define dlmallopt              mallopt
@@ -798,6 +799,12 @@ DLMALLOC_EXPORT void* dlrealloc(void*, size_t);
   returns ENOMEM if memory cannot be allocated.
 */
 DLMALLOC_EXPORT int dlposix_memalign(void**, size_t, size_t);
+
+/*
+  void *aligned_alloc(size_t alignment, size_t size);
+  C11 interface to allocate aligned memory.
+*/
+DLMALLOC_EXPORT void *aligned_alloc(size_t, size_t);
 
 /*
   mallopt(int parameter_number, int parameter_value)

@@ -1729,7 +1729,7 @@ static int change_mparam(int param_number, ssize_t value) {
     /* Values over 100 are all infinity */
     mparams.max_freebuf_percent = val / 100.0;
     return 1;
-#ifdef SUPPORT_UNMAP
+#if SUPPORT_UNMAP
   case M_UNMAP_THRESHOLD:
     mparams.unmap_threshold = value < 0 || value > MAX_UNMAP_THRESHOLD ?
 	MAX_UNMAP_THRESHOLD : (size_t)value;

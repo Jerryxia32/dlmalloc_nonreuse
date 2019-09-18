@@ -1355,6 +1355,14 @@ static inline void *unbound_ptr(mstate m, msegmentptr *spp, void *mem)
 }
 #endif
 
+#ifndef __CHERI__
+
+#ifndef MAP_CHERI_NOSETBOUNDS
+#define MAP_CHERI_NOSETBOUNDS   0x0
+#endif /*  MAP_CHERI_NOSETBOUNDS  */
+
+#endif /*  ! __CHERI__  */
+
 /* -------------------------- Debugging setup ---------------------------- */
 
 #if ! DEBUG

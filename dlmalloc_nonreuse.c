@@ -181,6 +181,31 @@ typedef struct {
 #define UTRACE(a, b, c)
 #endif
 
+/* -------------------------- Compiler features ----------------------------- */
+
+
+#ifndef __CHERI_PURE_CAPABILITY__
+/* These replacements for alignment builtins are not meant for CHERI purecap
+ * due to the potential trouble of recasting to a pointer type. */
+
+#if !__has_builtin(__builtin_align_down)
+#define __builtin_align_down(p, a)   (((a) & ((a) - 1)) == 0 ? \
+   (__typeof(p))((uintptr_t)(p) & ~((a) - 1)) :                           \
+   (__typeof(p))((uintptr_t)(p) - (uintptr_t)(p) % (a)))
+#endif   /* !__has_builtin(__builtin_align_down) */
+
+#if !__has_builtin(__builtin_align_up)
+#define __builtin_align_up(p, a)   \
+   __builtin_align_down((__typeof(p))((uintptr_t)(p) + (a) - 1), a)
+#endif   /* !__has_builtin(__builtin_align_up) */
+
+#if !__has_builtin(__builtin_is_aligned)
+#define __builtin_is_aligned(p, a)   ((((a) & ((a) - 1)) == 0 ? \
+    (uintptr_t)(p) & ((a) - 1) : (uintptr_t)(p) % (a)) == 0)
+#endif   /* !__has_builtin(__builtin_is_aligned) */
+
+#endif   /* !__CHERI_PURE_CAPABILITY__ */
+
 /* ------------------- size_t and alignment properties -------------------- */
 
 /* The byte and bit size of a size_t */

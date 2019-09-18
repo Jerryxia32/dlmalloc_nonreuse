@@ -1639,12 +1639,12 @@ static int init_mparams(void) {
 
     /* Sanity-check configuration:
        ints must be at least 4 bytes.
-       alignment must be at least 8.
+       alignment must be at least 32.
        Alignment, min chunk size, and page size must all be powers of 2.
     */
     if ((MAX_SIZE_T < MIN_CHUNK_SIZE)  ||
         (sizeof(int) < 4)  ||
-        (MALLOC_ALIGNMENT < (size_t)8U) ||
+        (MALLOC_ALIGNMENT < (size_t)32U) ||
         ((MALLOC_ALIGNMENT & (MALLOC_ALIGNMENT-SIZE_T_ONE)) != 0) ||
         ((MCHUNK_SIZE      & (MCHUNK_SIZE-SIZE_T_ONE))      != 0) ||
         ((gsize            & (gsize-SIZE_T_ONE))            != 0) ||

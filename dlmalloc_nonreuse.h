@@ -70,7 +70,7 @@
        than pointers, you can use a previous release of this malloc
        (e.g. 2.7.2) supporting these.)
 
-  Alignment:                                     8 bytes (minimum)
+  Alignment:                                     32 bytes (minimum)
        This suffices for nearly all current machines and C compilers.
        However, you can define MALLOC_ALIGNMENT to be wider than this
        if necessary (up to 128bytes), at the expense of using more space.
@@ -211,7 +211,7 @@ DLMALLOC_EXPORT       default: extern
 
 MALLOC_ALIGNMENT         default: (size_t)(2 * sizeof(void *))
   Controls the minimum alignment for malloc'ed chunks.  It must be a
-  power of two and at least 8, even on machines for which smaller
+  power of two and at least 32, even on machines for which smaller
   alignments would suffice. It may be defined as larger than this
   though. Note however that code and data structures are optimized for
   the case of 8-byte alignment.
@@ -513,7 +513,7 @@ DEFAULT_UNMAP_THRESHOLD	default: MAX_SIZE_T / PAGESIZE
 #define HAVE_MMAP 1
 /* OSX allocators provide 16 byte alignment */
 #ifndef MALLOC_ALIGNMENT
-#define MALLOC_ALIGNMENT ((size_t)16U)
+#define MALLOC_ALIGNMENT ((size_t)32U)
 #endif
 #endif  /* DARWIN */
 
@@ -545,7 +545,9 @@ DEFAULT_UNMAP_THRESHOLD	default: MAX_SIZE_T / PAGESIZE
 #endif /* USE_LOCKS */
 
 #ifndef MALLOC_ALIGNMENT
-#define MALLOC_ALIGNMENT ((size_t)(2 * sizeof(void *)))
+#define MALLOC_ALIGNMENT_DEFAULT ((size_t)(2 * sizeof(void *)))
+#define MALLOC_ALIGNMENT \
+    ((size_t)(MALLOC_ALIGNMENT_DEFAULT >= 32 ? MALLOC_ALIGNMENT_DEFAULT : 32))
 #endif  /* MALLOC_ALIGNMENT */
 #ifndef ABORT
 #define ABORT  abort()

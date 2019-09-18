@@ -3274,7 +3274,7 @@ dlfree_internal(void* mem) {
     if (cunmapped(p)) {
       remap_base = __builtin_align_up(chunk2mem(p), mparams.page_size);
       remap_end = __builtin_align_down((char *)p + chunksize(p),
-				       mparams.page_size);
+                                       mparams.page_size);
       ptrdiff_t remap_len = remap_end - remap_base;
       assert(remap_len > 0 && remap_len % mparams.page_size == 0);
 #ifdef VERBOSE
@@ -3545,14 +3545,14 @@ dlfree(void* mem) {
             mchunkptr prev = chunk_minus_offset(p, prevsize);
             psize += prevsize;
 #if SUPPORT_UNMAP
-	    if (cunmapped(prev)) {
-	      /*
-	       * The previous chunk is unmapped up to the page contining our
-	       * chunk header.  We must unmap that page if we can to
-	       * join the unmapped region.
-	       */
+            if (cunmapped(prev)) {
+              /*
+               * The previous chunk is unmapped up to the page contining our
+               * chunk header.  We must unmap that page if we can to
+               * join the unmapped region.
+               */
               unmap_base = __builtin_align_down(p, mparams.page_size);
-	    }
+            }
 #endif
             p = prev;
             if(RTCHECK(ok_address(fm, prev))) {
@@ -3570,15 +3570,15 @@ dlfree(void* mem) {
               unlink_freebuf_chunk(fm, next);
               set_size_and_clear_pdirty_of_dirty_chunk(p, psize);
 #if SUPPORT_UNMAP
-	      if (cunmapped(next)) {
-		/*
-		 * The page after our allocation is unmapped and we
-		 * must join it if we can and consume remainder of the
-		 * next chunk.
-		 */
-		set_cunmapped(p);
-		unmap_end = __builtin_align_up(next, mparams.page_size);
-	      }
+              if (cunmapped(next)) {
+                /*
+                 * The page after our allocation is unmapped and we
+                 * must join it if we can and consume remainder of the
+                 * next chunk.
+                 */
+                set_cunmapped(p);
+                unmap_end = __builtin_align_up(next, mparams.page_size);
+              }
 #endif
             }
             else {
@@ -3600,18 +3600,18 @@ dlfree(void* mem) {
         unmap_end = __builtin_align_down((char *)p + chunksize(p), mparams.page_size);
       ptrdiff_t unmap_len = (char *)unmap_end - (char *)unmap_base;
       if (unmap_len > 0 && (size_t)unmap_len >= mparams.unmap_threshold) {
-	set_cunmapped(p);
+        set_cunmapped(p);
       }
       if (cunmapped(p) && unmap_end > unmap_base) {
 #ifdef VERBOSE
-	malloc_printf("%s: unmapping %ti from %#p\n", __func__, unmap_len, unmap_base);
+        malloc_printf("%s: unmapping %ti from %#p\n", __func__, unmap_len, unmap_base);
 #endif
-	/*
-	 * We'd like to unmap the memory, but that could lead to reuse.
-	 * Instead, map it MAP_GUARD.
-	 */
+        /*
+         * We'd like to unmap the memory, but that could lead to reuse.
+         * Instead, map it MAP_GUARD.
+         */
         if (mmap(unmap_base, unmap_len, PROT_NONE,
-	         MAP_FIXED | MAP_GUARD | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
+            MAP_FIXED | MAP_GUARD | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
             MAP_FAILED)
           CORRUPTION_ERROR_ACTION(fm);
       }

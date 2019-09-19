@@ -250,7 +250,6 @@ typedef struct {
 #if HAVE_MMAP
 
 #define MUNMAP_DEFAULT(a, s)  munmap((a), (s))
-#define MUNMAP_SHADOW(a, s)  munmap((void*)((size_t)(a)>>MALLOC_ALIGN_BITSHIFT), (s)>>MALLOC_ALIGN_BITSHIFT)
 #define MMAP_PROT            (PROT_READ|PROT_WRITE)
 
 #if !defined(MAP_ANONYMOUS) && !defined(MAP_ANON)
@@ -262,8 +261,11 @@ typedef struct {
 #define MMAP_FLAGS           (MAP_PRIVATE|MAP_ANONYMOUS|MAP_ALIGNED(PAGE_SHIFT+MALLOC_ALIGN_BITSHIFT))
 #define MMAP_DEFAULT(s)       mmap(0, (s), MMAP_PROT, MMAP_FLAGS, -1, 0)
 
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
 #define MMAP_SHADOW_FLAGS    (MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT|MAP_FIXED)
 #define MMAP_SHADOW(addr, s)       mmap((void*)((size_t)(addr)>>MALLOC_ALIGN_BITSHIFT), (s)>>MALLOC_ALIGN_BITSHIFT, MMAP_PROT, MMAP_SHADOW_FLAGS, -1, 0)
+#define MUNMAP_SHADOW(a, s)  munmap((void*)((size_t)(a)>>MALLOC_ALIGN_BITSHIFT), (s)>>MALLOC_ALIGN_BITSHIFT)
+#endif   /* defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__) */
 
 #define DIRECT_MMAP_DEFAULT(s) MMAP_DEFAULT(s)
 #endif /* HAVE_MMAP */
@@ -2467,11 +2469,11 @@ static void* mmap_alloc(mstate m, size_t nb) {
   if (mmsize > nb) {     /* Check for wrap around 0 */
     char* mm = (char*)(CALL_DIRECT_MMAP(mmsize));
     if (mm != CMFAIL) {
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
       if(MMAP_SHADOW(mm, mmsize) != (void*)((size_t)mm>>MALLOC_ALIGN_BITSHIFT)) {
         ABORT;
       }
-#endif
+#endif   /* defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__) */
       size_t offset = align_offset(chunk2mem(mm));
       size_t psize = mmsize - offset - MMAP_FOOT_PAD;
       mchunkptr p = (mchunkptr)(mm + offset);
@@ -2695,7 +2697,7 @@ static void* sys_alloc(mstate m, size_t nb) {
 
   if (HAVE_MMAP && tbase == CMFAIL) {  /* Try MMAP */
     char* mp = (char*)(CALL_MMAP(asize));
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
     if(MMAP_SHADOW(mp, asize) != (void*)((size_t)mp>>MALLOC_ALIGN_BITSHIFT)) {
       ABORT;
     }
@@ -2815,7 +2817,7 @@ static size_t release_unused_segments(mstate m) {
           unlink_large_chunk(m, tp);
         }
         if (CALL_MUNMAP(base, size) == 0) {
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
           MUNMAP_SHADOW(base, size);
 #endif
           released += size;
@@ -2863,7 +2865,7 @@ static int sys_trim(mstate m, size_t pad) {
             /* Prefer mremap, fall back to munmap */
             if ((CALL_MREMAP(sp->base, sp->size, newsize, 0) != MFAIL) ||
                 (CALL_MUNMAP(sp->base + newsize, extra) == 0)) {
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
               MUNMAP_SHADOW(sp->base+newsize, extra);
 #endif
               released = extra;
@@ -2903,7 +2905,7 @@ static void dispose_chunk(mstate m, mchunkptr p, size_t psize) {
     if (is_mmapped(p)) {
       psize += prevsize + MMAP_FOOT_PAD;
       if (CALL_MUNMAP((char*)p - prevsize, psize) == 0) {
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
         MUNMAP_SHADOW((char*)p - prevsize, psize);
 #endif
         m->footprint -= psize;
@@ -3337,7 +3339,7 @@ dlfree_internal(void* mem) {
           if (is_mmapped(p)) {
             psize += prevsize + MMAP_FOOT_PAD;
             if (CALL_MUNMAP((char*)p - prevsize, psize) == 0) {
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
               MUNMAP_SHADOW((char*)p - prevsize, psize);
 #endif
               fm->footprint -= psize;
@@ -3433,7 +3435,7 @@ dlfree_internal(void* mem) {
 #undef fm
 }
 
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
 // The following two functions assume 8 bits in a byte.
 static void
 shadow_paint(void* start, size_t size) {
@@ -3502,7 +3504,7 @@ shadow_clear(void* start, size_t size) {
     }
   }
 }
-#endif
+#endif   /* defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__) */
 
 static void malloc_revoke_internal(const char *cause);
 
@@ -3643,14 +3645,14 @@ malloc_revoke_internal(const char *reason) {
 #endif // SWEEP_STATS
   mchunkptr freebin = &gm->freebufbin;
   for (mchunkptr thePtr = freebin->fd; thePtr != freebin; thePtr = thePtr->fd) {
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
     shadow_paint(thePtr, chunksize(thePtr));
 #else
 #ifdef CAPREVOKE
     vaddr_t addr = __builtin_cheri_address_get(chunk2mem(thePtr));
     caprev_shadow_nomap_set_raw(thePtr->pad, addr, addr + chunksize(thePtr));
 #endif
-#endif
+#endif   /* defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__) */
   }
 
 #ifdef CAPREVOKE
@@ -3669,14 +3671,14 @@ malloc_revoke_internal(const char *reason) {
 #if CONSOLIDATE_ON_FREE == 1 || !defined(__CHERI_PURE_CAPABILITY__)
     size_t theSize = chunksize(thePtr);
 #endif
-#ifndef __CHERI_PURE_CAPABILITY__
+#if defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__)
     shadow_clear(thePtr, theSize);
 #else
 #ifdef CAPREVOKE
     vaddr_t addr = __builtin_cheri_address_get(chunk2mem(thePtr));
     caprev_shadow_nomap_clear_raw(thePtr->pad, addr, addr + chunksize(thePtr));
 #endif
-#endif
+#endif   /* defined(REVOKE) && !defined(__CHERI_PURE_CAPABILITY__) */
 #if CONSOLIDATE_ON_FREE == 1
     mchunkptr theNext = chunk_plus_offset(thePtr, theSize);
     if(!is_mmapped(thePtr)) {

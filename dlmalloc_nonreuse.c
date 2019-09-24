@@ -2649,7 +2649,9 @@ print_sweep_stats() {
   malloc_printf("Free bytes: %zd.\n", gm->freeBytes);
   malloc_printf("Bits painted: %zd.\n", gm->bitsPainted);
   malloc_printf("Bits cleared: %zd.\n", gm->bitsCleared);
+#if !NO_MALLOC_STATS
   dlmalloc_stats();
+#endif
 }
 #endif // SWEEP_STATS
 

@@ -3508,30 +3508,31 @@ static void malloc_revoke_internal(const char *cause);
 
 void
 dlfree(void* mem) {
-  if(mem != 0) {
-    msegmentptr sp;
-    mchunkptr p  = mem2chunk(unbound_ptr(gm, &sp, mem));
-    gm->allocated -= chunksize(p);
-#if SUPPORT_UNMAP
-    void *unmap_base = NULL;
-    void *unmap_end = NULL;
-#endif
-
+    if (mem == 0) return;
 #define fm gm
-#ifdef __CHERI_PURE_CAPABILITY__
-    /*
-     * Replace the pointer to the allocation.  This allows us to catch
-     * double-free()s in unbound_ptr().  In the CAPREVOKE case, it also
-     * allows us to cache the shadow pointer for later use.
-     */
-#ifdef CAPREVOKE
-    p->pad = sp->shadow;
-#else
-    p->pad = NULL;
-#endif
-#endif /* __CHERI_PURE_CAPABILITY__ */
+
     UTRACE(mem, 0, 0);
     if(!PREACTION(fm)) {
+      msegmentptr sp;
+      mchunkptr p  = mem2chunk(unbound_ptr(gm, &sp, mem));
+      gm->allocated -= chunksize(p);
+#if SUPPORT_UNMAP
+      void *unmap_base = NULL;
+      void *unmap_end = NULL;
+#endif
+
+#ifdef __CHERI_PURE_CAPABILITY__
+      /*
+       * Replace the pointer to the allocation.  This allows us to catch
+       * double-free()s in unbound_ptr().  In the CAPREVOKE case, it also
+       * allows us to cache the shadow pointer for later use.
+       */
+#ifdef CAPREVOKE
+      p->pad = sp->shadow;
+#else
+      p->pad = NULL;
+#endif
+#endif /* __CHERI_PURE_CAPABILITY__ */
       check_inuse_chunk(fm, p);
 #if SWEEP_STATS
       fm->freeTimes++;
@@ -3629,7 +3630,6 @@ dlfree(void* mem) {
       }
       POSTACTION(fm);
     }
-  }
 }
 
 static void

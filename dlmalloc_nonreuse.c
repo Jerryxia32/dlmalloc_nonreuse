@@ -1079,6 +1079,7 @@ struct malloc_state {
   binmap_t   smallmap;
   binmap_t   treemap;
   size_t     freebufbytes;
+  size_t     freebufbytes_real_delta; /* freebufbytes - freebufbytes_real */
   size_t     freebufsize;
   size_t     dvsize;
   size_t     topsize;
@@ -3288,6 +3289,8 @@ dlfree_internal(void* mem) {
 	       MAP_FIXED | MAP_ANON | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
           MAP_FAILED)
         ABORT;
+	assert(fm->freebufbytes_real_delta >= remap_len);
+	fm->freebufbytes_real_delta -= remap_len;
     }
 #endif /* SUPPORT_UNMAP */
 
@@ -3619,13 +3622,16 @@ dlfree(void* mem) {
             MAP_FIXED | MAP_GUARD | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
             MAP_FAILED)
           CORRUPTION_ERROR_ACTION(fm);
+      fm->freebufbytes_real_delta += unmap_len;
+      assert(fm->freebufbytes_real_delta <= fm->freebufbytes);
       }
 #endif
 
-      if (fm->freebufbytes > mparams.max_freebufbytes) {
+      size_t freebufbytes_real = fm->freebufbytes - fm->freebufbytes_real_delta;
+      if (freebufbytes_real > mparams.max_freebufbytes) {
         malloc_revoke_internal("mparams.max_freebufbytes exceeded");
-      } else if (fm->freebufbytes > mparams.min_freebufbytes &&
-	         fm->freebufbytes >
+      } else if (freebufbytes_real > mparams.min_freebufbytes &&
+                 freebufbytes_real >
                  (size_t)(fm->footprint * mparams.max_freebuf_percent)) {
         malloc_revoke_internal("mparams.max_freebuf_percent and "
 	                       "mparams.min_freebufbytes exceeded");

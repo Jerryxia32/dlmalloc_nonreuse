@@ -4108,14 +4108,19 @@ int dlmallopt(int param_number, int value) {
   return change_mparam(param_number, value);
 }
 
-size_t dlmalloc_usable_size(void* mem) {
-#ifndef __CHERI_PURE_CAPABILITY__
-  if (mem != 0) {
-    mchunkptr p = mem2chunk(mem);
+__attribute__((always_inline))
+size_t dlmalloc_allocation_size(void* mem) {
+  if (mem != NULL) {
+    mchunkptr p = mem2chunk(unbound_ptr(gm, NULL, mem));
     if (is_inuse(p))
       return chunksize(p) - overhead_for(p);
   }
   return 0;
+}
+
+size_t dlmalloc_usable_size(void* mem) {
+#ifndef __CHERI_PURE_CAPABILITY__
+  return dlmalloc_allocation_size(mem);
 #else
   return __builtin_cheri_length_get(mem);
 #endif

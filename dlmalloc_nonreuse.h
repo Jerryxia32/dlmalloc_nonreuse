@@ -727,6 +727,7 @@ extern "C" {
 #define dlmallopt              mallopt
 #define dlmalloc_trim          malloc_trim
 #define dlmalloc_stats         malloc_stats
+#define dlmalloc_allocation_size malloc_allocation_size
 #define dlmalloc_usable_size   malloc_usable_size
 #define dlmalloc_footprint     malloc_footprint
 #define dlmalloc_max_footprint malloc_max_footprint
@@ -986,6 +987,16 @@ DLMALLOC_EXPORT int  dlmalloc_trim(size_t);
 DLMALLOC_EXPORT void  dlmalloc_stats(void);
 
 /*
+  malloc_allocation_size(void* p);
+
+  Returns the number of bytes underlying an allocated chunk, which may be more
+  than you requested (although often not) due to alignment and minimum size
+  constraints. Returns 0 if the base of p does not correspond to the base
+  of an allocated chunk.
+*/
+DLMALLOC_EXPORT size_t dlmalloc_allocation_size(void*);
+
+/*
   malloc_usable_size(void* p);
 
   Returns the number of bytes you can actually use in
@@ -998,8 +1009,12 @@ DLMALLOC_EXPORT void  dlmalloc_stats(void);
 
   p = malloc(n);
   assert(malloc_usable_size(p) >= 256);
+
+  In purecap CHERI, this amounts to taking the minimum of the result of
+  dlmalloc_allocation_size() and the length of the passed-in capability, which
+  should always be the length of the passed-in capability.
 */
-size_t dlmalloc_usable_size(void*);
+DLMALLOC_EXPORT size_t dlmalloc_usable_size(void*);
 
 DLMALLOC_EXPORT void  dlmalloc_revoke(void);
 

@@ -1011,8 +1011,7 @@ DLMALLOC_EXPORT size_t dlmalloc_allocation_size(void*);
   assert(malloc_usable_size(p) >= 256);
 
   In purecap CHERI, this amounts to taking the minimum of the result of
-  dlmalloc_allocation_size() and the length of the passed-in capability, which
-  should always be the length of the passed-in capability.
+  dlmalloc_allocation_size() and the length of the passed-in capability.
 */
 DLMALLOC_EXPORT size_t dlmalloc_usable_size(void*);
 

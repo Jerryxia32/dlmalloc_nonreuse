@@ -4122,6 +4122,8 @@ size_t dlmalloc_usable_size(void* mem) {
 #ifndef __CHERI_PURE_CAPABILITY__
   return dlmalloc_allocation_size(mem);
 #else
-  return __builtin_cheri_length_get(mem);
+  size_t allocation_size = dlmalloc_allocation_size(mem);
+  size_t cap_length = __builtin_cheri_length_get(mem);
+  return cap_length < allocation_size ? cap_length : allocation_size;
 #endif
 }

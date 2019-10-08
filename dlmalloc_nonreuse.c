@@ -3618,10 +3618,15 @@ dlfree(void* mem) {
          * We'd like to unmap the memory, but that could lead to reuse.
          * Instead, map it MAP_GUARD.
          */
+#if EMULATE_MADV_REVOKE
+        if (madvise(unmap_base, unmap_len, MADV_FREE) != 0)
+          CORRUPTION_ERROR_ACTION(fm);
+#else
         if (mmap(unmap_base, unmap_len, PROT_NONE,
             MAP_FIXED | MAP_GUARD | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
             MAP_FAILED)
           CORRUPTION_ERROR_ACTION(fm);
+#endif
         fm->freebufbytes_unmapped += unmap_len;
         assert(fm->freebufbytes_unmapped <= fm->freebufbytes);
       }

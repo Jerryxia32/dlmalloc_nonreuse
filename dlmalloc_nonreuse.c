@@ -3289,8 +3289,8 @@ dlfree_internal(void* mem) {
 	       MAP_FIXED | MAP_ANON | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
           MAP_FAILED)
         ABORT;
-	assert(fm->freebufbytes_real_delta >= remap_len);
-	fm->freebufbytes_real_delta -= remap_len;
+      assert(fm->freebufbytes_real_delta >= remap_len);
+      fm->freebufbytes_real_delta -= remap_len;
     }
 #endif /* SUPPORT_UNMAP */
 
@@ -3622,8 +3622,8 @@ dlfree(void* mem) {
             MAP_FIXED | MAP_GUARD | MAP_CHERI_NOSETBOUNDS, -1, 0) ==
             MAP_FAILED)
           CORRUPTION_ERROR_ACTION(fm);
-      fm->freebufbytes_real_delta += unmap_len;
-      assert(fm->freebufbytes_real_delta <= fm->freebufbytes);
+        fm->freebufbytes_real_delta += unmap_len;
+        assert(fm->freebufbytes_real_delta <= fm->freebufbytes);
       }
 #endif
 

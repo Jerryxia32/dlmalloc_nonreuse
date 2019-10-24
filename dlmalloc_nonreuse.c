@@ -3711,6 +3711,9 @@ malloc_revoke_internal(const char *reason) {
     // list of freebufbin will get corrupted.
     dlfree_internal(chunk2mem(thePtr));
   }
+#ifdef SUPPORT_UNMAP
+  assert(fm->freebufbytes_unmapped == 0);
+#endif /* SUPPORT_UNMAP */
 }
 
 void

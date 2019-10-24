@@ -3610,6 +3610,13 @@ dlfree(void* mem) {
       if (unmap_len > 0 && (size_t)unmap_len >= mparams.unmap_threshold) {
         set_cunmapped(p);
       }
+      /*
+       * cunmapped(p) may be set by the threshold check above or be
+       * inherited from an ajoining region containing which has previously
+       * unmapped.  This means the unmaps smaller than the threshold may
+       * occur, but ensures that all of a chunk's potentially
+       * unmapable pages are unmapped.
+       */
       if (cunmapped(p) && unmap_end > unmap_base) {
 #ifdef VERBOSE
         malloc_printf("%s: unmapping %ti from %#p\n", __func__, unmap_len, unmap_base);

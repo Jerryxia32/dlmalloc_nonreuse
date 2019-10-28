@@ -3641,7 +3641,7 @@ dlfree(void* mem) {
 
       size_t freebufbytes_mapped = fm->freebufbytes - fm->freebufbytes_unmapped;
       /* fm->freebufbytes is included in fm->footprint, so adjust it there as well */
-      size_t footprint_mapped = fm->footprint - fm->freebufbytes_mapped;
+      size_t footprint_mapped = fm->footprint - fm->freebufbytes_unmapped;
       if (freebufbytes_mapped > mparams.max_freebufbytes) {
         malloc_revoke_internal("mparams.max_freebufbytes exceeded");
       } else if (freebufbytes_mapped > mparams.min_freebufbytes &&

@@ -3585,7 +3585,7 @@ dlfree(void* mem) {
                  * next chunk.
                  */
                 set_cunmapped(p);
-                unmap_end = __builtin_align_up(next, mparams.page_size);
+                unmap_end = __builtin_align_up(chunk2mem(next), mparams.page_size);
               }
 #endif
             }
